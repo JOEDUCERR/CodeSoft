@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin · CodeSoft</title>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/pages.css">
+</head>
+<body class="app-shell" data-page="admin">
+  <header class="site-header" data-header></header>
+  <main class="page page-wide">
+    <div class="section-head">
+      <h1>Problem Management</h1>
+      <button class="btn" type="button" id="new-problem">New Problem</button>
+    </div>
+    <div class="admin-layout">
+      <section>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Problem</th>
+              <th>Difficulty</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="admin-rows"></tbody>
+        </table>
+        <p id="empty" class="page-empty"></p>
+      </section>
+      <form class="admin-form" id="problem-form">
+        <h2>Problem editor</h2>
+        <div class="field">
+          <label for="title">Title</label>
+          <input id="title" name="title" required>
+        </div>
+        <div class="field">
+          <label for="slug">Slug</label>
+          <input id="slug" name="slug">
+        </div>
+        <div class="field">
+          <label for="difficulty">Difficulty</label>
+          <select id="difficulty" name="difficulty">
+            <option>Easy</option>
+            <option>Medium</option>
+            <option>Hard</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="tags">Tags</label>
+          <input id="tags" name="tags" placeholder="Array, Hash Table">
+        </div>
+        <div class="field">
+          <label><input type="checkbox" name="published" id="published"> Published</label>
+        </div>
+        <div class="field">
+          <label for="description">Description</label>
+          <textarea id="description" name="description"></textarea>
+        </div>
+        <div class="field">
+          <label for="constraints">Constraints</label>
+          <textarea id="constraints" name="constraints" placeholder="One constraint per line"></textarea>
+        </div>
+        <div class="field">
+          <label for="examples">Examples</label>
+          <textarea id="examples" name="examples" placeholder="Input: ...&#10;Output: ..."></textarea>
+        </div>
+        <div class="field">
+          <label for="inputFormat">Input format</label>
+          <textarea id="inputFormat" name="inputFormat"></textarea>
+        </div>
+        <div class="field">
+          <label for="outputFormat">Output format</label>
+          <textarea id="outputFormat" name="outputFormat"></textarea>
+        </div>
+        <div class="field">
+          <label for="starterPython">Starter · Python</label>
+          <textarea id="starterPython" name="starterPython"></textarea>
+        </div>
+        <div class="field">
+          <label for="starterCpp">Starter · C++</label>
+          <textarea id="starterCpp" name="starterCpp"></textarea>
+        </div>
+        <div class="field">
+          <label for="starterJava">Starter · Java</label>
+          <textarea id="starterJava" name="starterJava"></textarea>
+        </div>
+        <h3>Test cases</h3>
+        <div id="test-cases"></div>
+        <p class="btn-row">
+          <button class="btn btn-secondary" type="button" id="add-test">Add Test Case</button>
+          <button class="btn btn-secondary" type="button" id="toggle-publish">Publish / Unpublish</button>
+        </p>
+        <p class="btn-row">
+          <button class="btn" type="submit" id="save-problem">Save</button>
+          <button class="btn btn-danger" type="button" id="delete-problem">Delete</button>
+        </p>
+        <p class="demo-note">Changes stay in localStorage until the admin API is connected.</p>
+      </form>
+    </div>
+  </main>
+  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/pages/admin.js"></script>
+</body>
+</html>

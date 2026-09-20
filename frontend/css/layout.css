@@ -1,0 +1,252 @@
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-header {
+  height: var(--header-h);
+  background: var(--header);
+  color: var(--header-text);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  border-bottom: 1px solid #000;
+}
+
+.site-header a {
+  color: var(--header-text);
+  text-decoration: none;
+}
+
+.site-header a:hover,
+.site-header a[aria-current="page"] {
+  color: #fff;
+}
+
+.brand {
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  font-size: 13px;
+  text-transform: uppercase;
+  margin-right: 8px;
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+}
+
+.site-nav a[aria-current="page"] {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.header-spacer {
+  flex: 1;
+}
+
+.user-menu {
+  position: relative;
+}
+
+.user-menu-btn {
+  background: transparent;
+  color: var(--header-text);
+  border: 1px solid #3a3a3a;
+  padding: 4px 10px;
+  cursor: pointer;
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+
+.user-menu-btn:hover {
+  border-color: #666;
+}
+
+.user-menu-list {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--border);
+  min-width: 180px;
+  box-shadow: var(--shadow);
+  z-index: 30;
+}
+
+.user-menu.open .user-menu-list {
+  display: block;
+}
+
+.user-menu-list a,
+.user-menu-list button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: inherit;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.user-menu-list a:hover,
+.user-menu-list button:hover {
+  background: var(--surface);
+}
+
+.nav-toggle {
+  display: none;
+  margin-left: auto;
+  background: transparent;
+  color: #fff;
+  border: 1px solid #444;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.page {
+  flex: 1;
+  padding: 20px 24px 40px;
+  max-width: 1080px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.page-wide {
+  max-width: 1200px;
+}
+
+.workspace-page {
+  max-width: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - var(--header-h));
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.auth-top {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.auth-top .brand {
+  color: var(--text);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  margin: 48px auto;
+  padding: 0 20px 40px;
+}
+
+.workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(280px, 42%) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: calc(100vh - var(--header-h));
+}
+
+.problem-pane {
+  border-right: 1px solid var(--border);
+  overflow: auto;
+  padding: 16px 18px 32px;
+  background: var(--bg);
+}
+
+.editor-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--editor-bg);
+  color: var(--editor-fg);
+}
+
+.output-pane {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  min-height: 160px;
+  max-height: 42vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.output-pane.collapsed {
+  min-height: 0;
+  max-height: none;
+}
+
+@media (max-width: 860px) {
+  .nav-toggle {
+    display: inline-block;
+  }
+
+  .site-nav,
+  .user-menu {
+    display: none;
+  }
+
+  .site-header.open .site-nav,
+  .site-header.open .user-menu {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    position: absolute;
+    top: var(--header-h);
+    left: 0;
+    right: 0;
+    background: #111;
+    padding: 8px 12px 12px;
+    gap: 8px;
+  }
+
+  .site-header.open .user-menu-list {
+    position: static;
+    box-shadow: none;
+  }
+
+  .workspace {
+    display: flex;
+    flex-direction: column;
+    min-height: auto;
+  }
+
+  .problem-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    max-height: 46vh;
+  }
+
+  .editor-pane {
+    min-height: 320px;
+  }
+
+  .output-pane {
+    max-height: none;
+  }
+
+  .page {
+    padding: 16px;
+  }
+}

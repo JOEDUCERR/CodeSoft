@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log in · CodeSoft</title>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/pages.css">
+</head>
+<body class="auth-page" data-page="login">
+  <header class="auth-top">
+    <a class="brand" href="login.html">CodeSoft</a>
+  </header>
+  <main class="auth-card">
+    <h1>Login</h1>
+    <p class="muted">Demo session is stored in this browser only. It is not production authentication.</p>
+    <div id="form-error" class="form-error" hidden></div>
+    <form id="login-form" novalidate>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <div class="password-wrap">
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <button class="btn btn-secondary" type="button" id="toggle-password">Show</button>
+        </div>
+      </div>
+      <button class="btn" type="submit" id="login-submit">Login</button>
+    </form>
+    <div class="divider">or</div>
+    <button class="btn btn-secondary" type="button" id="google-btn">Continue with Google</button>
+    <p class="guest-foot">Don't have an account? <a href="register.html">Create account</a></p>
+    <p class="demo-note">Demo user: demo@codesoft.dev / demo-pass-1<br>Admin: admin@codesoft.dev / admin-pass-1</p>
+  </main>
+  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/pages/login.js"></script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Problem · CodeSoft</title>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/pages.css">
+</head>
+<body class="app-shell" data-page="problem">
+  <header class="site-header" data-header></header>
+  <main class="workspace-page">
+    <div class="workspace">
+      <article class="problem-pane" id="problem-pane">
+        <p class="muted">Loading...</p>
+      </article>
+      <section class="editor-pane" aria-label="Code editor">
+        <div class="editor-toolbar">
+          <label for="language">Language</label>
+          <select id="language">
+            <option value="python">Python</option>
+            <option value="cpp">C++</option>
+            <option value="java">Java</option>
+          </select>
+        </div>
+        <div class="editor-wrap">
+          <label class="sr-only" for="editor">Source code</label>
+          <textarea id="editor" spellcheck="false" wrap="off"></textarea>
+        </div>
+        <div class="editor-actions">
+          <button class="btn btn-secondary" type="button" id="run-btn">Run</button>
+          <button class="btn" type="button" id="submit-btn">Submit</button>
+        </div>
+      </section>
+      <section class="output-pane" id="output-pane" aria-label="Execution result">
+        <div class="output-tabs">
+          <button type="button" data-tab="output" aria-selected="true">Output</button>
+          <button type="button" data-tab="tests" aria-selected="false">Test Cases</button>
+          <button type="button" data-tab="details" aria-selected="false">Submission Details</button>
+          <button type="button" class="output-collapse" id="collapse-output">Collapse</button>
+        </div>
+        <div class="output-body" id="output-body"></div>
+      </section>
+    </div>
+  </main>
+  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/pages/problem.js"></script>
+</body>
+</html>

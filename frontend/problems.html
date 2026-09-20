@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Problems · CodeSoft</title>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/pages.css">
+</head>
+<body class="app-shell" data-page="problems">
+  <header class="site-header" data-header></header>
+  <main class="page page-wide">
+    <h1>Problems</h1>
+    <div class="filters">
+      <label class="sr-only" for="search">Search problems</label>
+      <input class="input search" id="search" type="search" placeholder="Search problems...">
+      <label class="sr-only" for="difficulty">Difficulty</label>
+      <select class="select" id="difficulty">
+        <option value="all">Difficulty: All</option>
+        <option value="easy">Easy</option>
+        <option value="medium">Medium</option>
+        <option value="hard">Hard</option>
+      </select>
+      <label class="sr-only" for="language">Language</label>
+      <select class="select" id="language">
+        <option value="all">Language: All</option>
+        <option value="python">Python</option>
+        <option value="cpp">C++</option>
+        <option value="java">Java</option>
+      </select>
+    </div>
+    <table class="data-table" id="problems-table">
+      <thead>
+        <tr>
+          <th class="sortable" data-key="title">Title</th>
+          <th class="sortable" data-key="difficulty">Difficulty</th>
+          <th class="sortable" data-key="status">Status</th>
+        </tr>
+      </thead>
+      <tbody id="problem-rows"></tbody>
+    </table>
+    <p id="empty" class="page-empty"></p>
+  </main>
+  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/pages/problems.js"></script>
+</body>
+</html>

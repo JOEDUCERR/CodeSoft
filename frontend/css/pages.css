@@ -1,0 +1,67 @@
+.problem-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.problem-pane h1 {
+  margin-bottom: 6px;
+}
+
+.example-block,
+.constraint-list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  margin: 10px 0;
+}
+
+.constraint-list ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.home-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.home-grid .full {
+  grid-column: 1 / -1;
+}
+
+.admin-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+  gap: 20px;
+  align-items: start;
+}
+
+.admin-form {
+  border: 1px solid var(--border);
+  padding: 14px;
+  background: var(--surface);
+}
+
+.test-case-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: start;
+}
+
+.guest-foot {
+  margin-top: 16px;
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .home-grid,
+  .admin-layout,
+  .test-case-row {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Submissions · CodeSoft</title>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/pages.css">
+</head>
+<body class="app-shell" data-page="submissions">
+  <header class="site-header" data-header></header>
+  <main class="page page-wide">
+    <h1>Submissions</h1>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Problem</th>
+          <th>Language</th>
+          <th>Status</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody id="submission-rows"></tbody>
+    </table>
+    <p id="empty" class="page-empty"></p>
+  </main>
+  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/pages/submissions.js"></script>
+</body>
+</html>
