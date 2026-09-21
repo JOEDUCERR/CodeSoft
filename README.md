@@ -10,6 +10,8 @@ The current version contains the basic frontend and uses mock data and a determi
 
 ## Workflow chart
 
+![Main Architecture](main_architecture_overview.png)
+![User Architecture](user_submission_flow.png.png)
 
 Implemented:
 
