@@ -84,11 +84,21 @@ Problem create/edit/delete/publish writes `codesoft.store.problems`. If that key
 3. Set `config.useMock = false`.
 4. Keep `apiBase` as `/api`. Do not hard-code machine IPs.
 
+## Demo backend status
+
+The project now includes a working FastAPI backend slice in `main.py` that serves the static frontend from the repo root and exposes the expected `/api` routes for:
+
+- authentication (`/api/auth/*`)
+- problem catalog and admin CRUD (`/api/problems`, `/api/admin/problems`)
+- profile (`/api/profile`)
+- run and submit execution flows (`/api/run`, `/api/submissions`)
+
+This backend is intentionally demo-safe: it uses in-memory data and a mock judge to keep the frontend fully functional while the production execution worker and database are still planned. The frontend config has been switched to real API mode (`useMock: false`).
+
 ## Verify locally
 
 ```text
-cd frontend
-python -m http.server 8080
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Open `http://127.0.0.1:8080/login.html`.
+Open `http://127.0.0.1:8000/login.html`.

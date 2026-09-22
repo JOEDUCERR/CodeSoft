@@ -11,7 +11,7 @@
  */
 export const config = {
   apiBase: "/api",
-  useMock: true,
+  useMock: false,
   mockLatencyMs: { min: 280, max: 720 },
   sessionKey: "codesoft.session",
   storeKeys: {
