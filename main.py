@@ -19,10 +19,11 @@ from database import (
     fetch_user_by_id,
     init_db,
     insert_submission,
+    update_submission,
     upsert_problem,
     upsert_user,
 )
-from worker import judge_submission
+from worker import judge_submission, process_job, queue_submission, start_worker
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -41,6 +42,7 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+    start_worker()
 
 
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
@@ -295,7 +297,11 @@ def run_code(payload: dict[str, Any], token: str | None = Depends(auth_token_fro
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found.")
     if language not in problem.get("languages", []):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported language for this problem.")
-    return judge_submission(problem, language, code, mode="run")
+
+    job = {"id": f"job_{uuid.uuid4().hex[:8]}", "problemId": problem["id"], "language": language, "code": code, "mode": "run"}
+    queue_submission(job)
+    result = process_job(job)
+    return result
 
 
 @app.post("/api/submissions")
@@ -310,22 +316,36 @@ def submit_code(payload: dict[str, Any], token: str | None = Depends(auth_token_
     if language not in problem.get("languages", []):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported language for this problem.")
 
-    result = judge_submission(problem, language, code, mode="submit")
     submission = {
         "id": f"s_{uuid.uuid4().hex[:8]}",
         "problemId": problem["id"],
         "problemTitle": problem["title"],
         "language": language,
-        "status": result["status"],
-        "runtimeMs": result["runtimeMs"],
-        "memoryKb": result["memoryKb"],
+        "status": "Pending",
+        "runtimeMs": 0,
+        "memoryKb": 0,
         "createdAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "code": code,
-        "testsPassed": result["testsPassed"],
-        "testsTotal": result["testsTotal"],
-        "cases": result["cases"],
+        "testsPassed": 0,
+        "testsTotal": 0,
+        "cases": [],
     }
     insert_submission(submission)
+
+    job = {"id": submission["id"], "problemId": problem["id"], "language": language, "code": code, "mode": "submit", "userId": user["id"]}
+    queue_submission(job)
+    result = process_job(job)
+    submission.update(
+        {
+            "status": result["status"],
+            "runtimeMs": result["runtimeMs"],
+            "memoryKb": result["memoryKb"],
+            "testsPassed": result["testsPassed"],
+            "testsTotal": result["testsTotal"],
+            "cases": result["cases"],
+        }
+    )
+    update_submission(submission)
 
     if result["status"] == "Accepted":
         current = fetch_user_by_id(user["id"])

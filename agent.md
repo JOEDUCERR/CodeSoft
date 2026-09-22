@@ -106,6 +106,17 @@ The project now includes:
 
 This is the next staged backend step after the initial demo API: persistent data storage and worker-style judging logic, without yet introducing Redis or isolated sandbox execution.
 
+## Redis queue + execution worker status
+
+The backend has now been extended with a queue-driven execution layer in `worker.py`:
+
+- optional Redis-backed job queue when `REDIS_URL` is available
+- in-memory queue fallback for local/dev environments without Redis
+- a background worker thread to drain jobs and execute the same deterministic judge used for `run` and `submit`
+- submission requests now route through the job queue abstraction before returning the evaluated result
+
+This keeps execution logic in a reusable worker layer and establishes the pattern needed for the eventual Redis + isolated runtime environment.
+
 ## Verify locally
 
 ```text
