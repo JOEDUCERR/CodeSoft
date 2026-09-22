@@ -1,4 +1,4 @@
-# CodeSoft frontend — agent context
+﻿# CodeSoft frontend — agent context
 
 This file records unique decisions and implementation details for the CodeSoft code-execution platform frontend. Update it when the frontend contract or demo behavior changes.
 
@@ -86,14 +86,25 @@ Problem create/edit/delete/publish writes `codesoft.store.problems`. If that key
 
 ## Demo backend status
 
-The project now includes a working FastAPI backend slice in `main.py` that serves the static frontend from the repo root and exposes the expected `/api` routes for:
+The project already includes a working FastAPI backend slice in `main.py` with:
 
 - authentication (`/api/auth/*`)
 - problem catalog and admin CRUD (`/api/problems`, `/api/admin/problems`)
 - profile (`/api/profile`)
 - run and submit execution flows (`/api/run`, `/api/submissions`)
 
-This backend is intentionally demo-safe: it uses in-memory data and a mock judge to keep the frontend fully functional while the production execution worker and database are still planned. The frontend config has been switched to real API mode (`useMock: false`).
+This backend uses SQLite persistence in `codesoft.db` and a reusable execution worker in `worker.py`, which keeps the frontend functional without needing the final production execution environment yet. The frontend config has already been switched to real API mode (`useMock: false`).
+
+## Database + worker status
+
+The project now includes:
+
+- SQLite-backed storage for users, problems, and submissions in `database.py`
+- a reusable execution judge layer in `worker.py`
+- startup seeding for demo accounts and default problem data
+- persistence for newly registered users and submitted code results
+
+This is the next staged backend step after the initial demo API: persistent data storage and worker-style judging logic, without yet introducing Redis or isolated sandbox execution.
 
 ## Verify locally
 

@@ -1,6 +1,5 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,10 +9,26 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from database import (
+    delete_problem,
+    fetch_all_problems,
+    fetch_all_submissions,
+    fetch_problem_by_id_or_slug,
+    fetch_submission_by_id,
+    fetch_user_by_email,
+    fetch_user_by_id,
+    init_db,
+    insert_submission,
+    upsert_problem,
+    upsert_user,
+)
+from worker import judge_submission
+
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR / "frontend"
 
-app = FastAPI(title="CodeSoft API", version="0.1.0")
+app = FastAPI(title="CodeSoft API", version="0.2.0")
+init_db()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,28 +37,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DEMO_USERS = [
-    {
-        "id": "u_demo",
-        "name": "Amlan",
-        "email": "demo@codesoft.dev",
-        "password": "demo-pass-1",
-        "role": "user",
-        "solvedIds": ["two-sum", "reverse-string", "binary-search", "climbing-stairs"],
-        "attemptedIds": ["valid-parentheses", "merge-intervals"],
-    },
-    {
-        "id": "u_admin",
-        "name": "Admin",
-        "email": "admin@codesoft.dev",
-        "password": "admin-pass-1",
-        "role": "admin",
-        "solvedIds": ["two-sum", "binary-search"],
-        "attemptedIds": ["two-sum"],
-    },
-]
 
-EXTRA_USERS: list[dict[str, Any]] = []
+@app.on_event("startup")
+def startup() -> None:
+    init_db()
 
 
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
@@ -57,23 +54,16 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def all_users() -> list[dict[str, Any]]:
-    return [*DEMO_USERS, *EXTRA_USERS]
-
-
-def find_user_by_email(email: str) -> dict[str, Any] | None:
-    key = email.strip().lower()
-    for user in all_users():
-        if user["email"].lower() == key:
-            return user
-    return None
-
-
-def find_user_by_id(user_id: str) -> dict[str, Any] | None:
-    for user in all_users():
-        if user["id"] == user_id:
-            return user
-    return None
+def problem_summary(problem: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": problem["id"],
+        "slug": problem["slug"],
+        "title": problem["title"],
+        "difficulty": problem["difficulty"],
+        "tags": problem.get("tags", []),
+        "published": problem.get("published", True),
+        "languages": problem.get("languages", []),
+    }
 
 
 def auth_token_from_header(authorization: str | None = Header(default=None, alias="Authorization")) -> str | None:
@@ -92,7 +82,7 @@ def get_current_user(token: str | None = None) -> dict[str, Any]:
     if not raw.startswith("demo."):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized.")
     user_id = raw.split(".", 1)[1]
-    user = find_user_by_id(user_id)
+    user = fetch_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized.")
     return user
@@ -107,245 +97,6 @@ def optional_current_user(token: str | None = None) -> dict[str, Any] | None:
         return None
 
 
-DEFAULT_PROBLEMS = [
-    {
-        "id": "two-sum",
-        "slug": "two-sum",
-        "title": "Two Sum",
-        "difficulty": "Easy",
-        "tags": ["Array", "Hash Table"],
-        "published": True,
-        "languages": ["python", "cpp", "java"],
-        "description": "Given an array of integers nums and an integer target, return the indices of the two numbers such that they add up to target.",
-        "inputFormat": "nums: list of integers\ntarget: integer",
-        "outputFormat": "Two indices as a list of integers.",
-        "examples": [
-            {"input": "nums = [2,7,11,15], target = 9", "output": "[0,1]"},
-            {"input": "nums = [3,2,4], target = 6", "output": "[1,2]"},
-        ],
-        "constraints": ["2 <= nums.length <= 10^4", "-10^9 <= nums[i] <= 10^9"],
-        "starter": {
-            "python": "from typing import List\n\nclass Solution:\n    def twoSum(self, nums: List[int], target: int):\n        pass\n",
-            "cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nclass Solution {\npublic:\n    vector<int> twoSum(vector<int>& nums, int target) {\n        return {};\n    }\n};\n",
-            "java": "import java.util.*;\n\nclass Solution {\n    public int[] twoSum(int[] nums, int target) {\n        return new int[]{};\n    }\n}\n",
-        },
-        "tests": [
-            {"input": "[2,7,11,15]\n9", "output": "[0,1]", "sample": True},
-            {"input": "[3,2,4]\n6", "output": "[1,2]", "sample": True},
-            {"input": "[3,3]\n6", "output": "[0,1]", "sample": False},
-        ],
-    },
-    {
-        "id": "reverse-string",
-        "slug": "reverse-string",
-        "title": "Reverse String",
-        "difficulty": "Easy",
-        "tags": ["Two Pointers", "String"],
-        "published": True,
-        "languages": ["python", "cpp", "java"],
-        "description": "Write a function that reverses a string by modifying the input array in-place.",
-        "inputFormat": "s: array of characters",
-        "outputFormat": "The reversed array s.",
-        "examples": [{"input": 's = ["h","e","l","l","o"]', "output": '["o","l","l","e","h"]'}],
-        "constraints": ["1 <= s.length <= 10^5"],
-        "starter": {
-            "python": "class Solution:\n    def reverseString(self, s):\n        pass\n",
-            "cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nclass Solution {\npublic:\n    void reverseString(vector<char>& s) {\n    }\n};\n",
-            "java": "import java.util.*;\n\nclass Solution {\n    public void reverseString(char[] s) {\n    }\n}\n",
-        },
-        "tests": [
-            {"input": '["h","e","l","l","o"]', "output": '["o","l","l","e","h"]', "sample": True},
-            {"input": '["H","a","n","n","a","h"]', "output": '["h","a","n","n","a","H"]', "sample": True},
-        ],
-    },
-    {
-        "id": "binary-search",
-        "slug": "binary-search",
-        "title": "Binary Search",
-        "difficulty": "Easy",
-        "tags": ["Array", "Binary Search"],
-        "published": True,
-        "languages": ["python", "cpp", "java"],
-        "description": "Given a sorted array of integers, return the index of target or -1.",
-        "inputFormat": "nums: sorted integer array\ntarget: integer",
-        "outputFormat": "Index of target, or -1.",
-        "examples": [{"input": "nums = [-1,0,3,5,9,12], target = 9", "output": "4"}],
-        "constraints": ["1 <= nums.length <= 10^4"],
-        "starter": {
-            "python": "from typing import List\n\nclass Solution:\n    def search(self, nums: List[int], target: int) -> int:\n        pass\n",
-            "cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nclass Solution {\npublic:\n    int search(vector<int>& nums, int target) {\n        return -1;\n    }\n};\n",
-            "java": "import java.util.*;\n\nclass Solution {\n    public int search(int[] nums, int target) {\n        return -1;\n    }\n}\n",
-        },
-        "tests": [
-            {"input": "[-1,0,3,5,9,12]\n9", "output": "4", "sample": True},
-            {"input": "[-1,0,3,5,9,12]\n2", "output": "-1", "sample": True},
-        ],
-    },
-    {
-        "id": "kth-largest",
-        "slug": "kth-largest",
-        "title": "Kth Largest Element in an Array",
-        "difficulty": "Medium",
-        "tags": ["Heap", "Array"],
-        "published": False,
-        "languages": ["python", "cpp", "java"],
-        "description": "Find the kth largest element in an array.",
-        "inputFormat": "nums: integer array\nk: integer",
-        "outputFormat": "The kth largest element.",
-        "examples": [{"input": "nums = [3,2,1,5,6,4], k = 2", "output": "5"}],
-        "constraints": ["1 <= k <= nums.length"],
-        "starter": {
-            "python": "from typing import List\n\nclass Solution:\n    def findKthLargest(self, nums: List[int], k: int) -> int:\n        pass\n",
-            "cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nclass Solution {\npublic:\n    int findKthLargest(vector<int>& nums, int k) {\n        return 0;\n    }\n};\n",
-            "java": "import java.util.*;\n\nclass Solution {\n    public int findKthLargest(int[] nums, int k) {\n        return 0;\n    }\n}\n",
-        },
-        "tests": [{"input": "[3,2,1,5,6,4]\n2", "output": "5", "sample": True}],
-    },
-]
-
-PROBLEMS = [problem.copy() for problem in DEFAULT_PROBLEMS]
-
-DEFAULT_SUBMISSIONS = [
-    {
-        "id": "s1",
-        "problemId": "two-sum",
-        "problemTitle": "Two Sum",
-        "language": "python",
-        "status": "Accepted",
-        "runtimeMs": 42,
-        "memoryKb": 17680,
-        "createdAt": "2026-09-20T15:12:00.000Z",
-        "code": "class Solution:\n    def twoSum(self, nums, target):\n        pass\n",
-        "testsPassed": 3,
-        "testsTotal": 3,
-    },
-    {
-        "id": "s2",
-        "problemId": "binary-search",
-        "problemTitle": "Binary Search",
-        "language": "cpp",
-        "status": "Wrong Answer",
-        "runtimeMs": 18,
-        "memoryKb": 9200,
-        "createdAt": "2026-09-20T14:40:00.000Z",
-        "code": "class Solution {\npublic:\n    int search(vector<int>& nums, int target) { return 0; }\n};\n",
-        "testsPassed": 1,
-        "testsTotal": 2,
-    },
-]
-
-SUBMISSIONS = [dict(item) for item in DEFAULT_SUBMISSIONS]
-
-
-def problem_summary(problem: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": problem["id"],
-        "slug": problem["slug"],
-        "title": problem["title"],
-        "difficulty": problem["difficulty"],
-        "tags": problem.get("tags", []),
-        "published": problem.get("published", True),
-        "languages": problem.get("languages", []),
-    }
-
-
-def get_problem_by_id_or_slug(value: str) -> dict[str, Any] | None:
-    for problem in PROBLEMS:
-        if problem["id"] == value or problem["slug"] == value:
-            return problem
-    return None
-
-
-def normalize_code(code: str) -> str:
-    return re.sub(r"\s+", " ", code or "").strip()
-
-
-def looks_empty(code: str) -> bool:
-    normalized = normalize_code(code)
-    if len(normalized) < 24:
-        return True
-    stripped = normalized
-    for needle in [
-        "from typing import",
-        "#include",
-        "using namespace std;",
-        "import java.util.*;",
-        "class Solution",
-        "public:",
-        "pass",
-        "return -1;",
-    ]:
-        stripped = stripped.replace(needle, "")
-    stripped = re.sub(r"\{\s*\}", "", stripped)
-    return len(stripped.strip()) < 20
-
-
-def hash_code(value: str) -> int:
-    raw = 0
-    for char in value:
-        raw = (raw * 31 + ord(char)) & 0xFFFFFFFF
-    return raw
-
-
-def judge_submission(problem: dict[str, Any], language: str, code: str, mode: str) -> dict[str, Any]:
-    starter = (problem.get("starter") or {}).get(language, "")
-    edited = normalize_code(code) != normalize_code(starter)
-    empty = looks_empty(code)
-    tests = problem.get("tests", [])
-    pool = tests[:1] if mode == "run" and len(tests) else tests
-    if mode == "run" and any(item.get("sample") for item in tests):
-        pool = [test for test in tests if test.get("sample")]
-
-    status = "Accepted"
-    if not edited or empty:
-        status = "Wrong Answer"
-    elif re.search(r"syntax error|undefined_name|;;;;", code, flags=re.IGNORECASE):
-        status = "Compilation Error"
-    elif re.search(r"while\s*\(\s*true\s*\)|while True", code):
-        status = "Time Limit Exceeded"
-    elif re.search(r"raise |throw new |segfault", code, flags=re.IGNORECASE):
-        status = "Runtime Error"
-
-    seed = hash_code(f"{code}{language}{problem['id']}")
-    runtime_ms = 0 if status == "Compilation Error" else 8 + (seed % 90)
-    memory_kb = 0 if status == "Compilation Error" else 12000 + (seed % 28000)
-
-    cases: list[dict[str, Any]] = []
-    for index, item in enumerate(pool, start=1):
-        passed = status == "Accepted"
-        cases.append(
-            {
-                "index": index,
-                "input": item.get("input"),
-                "expected": item.get("output"),
-                "output": item.get("output") if passed else "(empty)" if status == "Wrong Answer" else "",
-                "passed": passed,
-                "sample": bool(item.get("sample")),
-            }
-        )
-
-    tests_passed = sum(1 for case in cases if case["passed"])
-    return {
-        "status": status,
-        "runtimeMs": runtime_ms,
-        "memoryKb": memory_kb,
-        "stdout": "\n".join(case["output"] for case in cases) if status == "Accepted" else "",
-        "stderr": (
-            "error: expected expression before end of input"
-            if status == "Compilation Error"
-            else "RuntimeError: mock exception"
-            if status == "Runtime Error"
-            else ""
-        ),
-        "testsPassed": tests_passed,
-        "testsTotal": len(cases),
-        "cases": cases,
-        "mode": mode,
-        "language": language,
-        "problemId": problem["id"],
-    }
-
-
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -355,8 +106,8 @@ def health() -> dict[str, str]:
 def login(payload: dict[str, Any]):
     email = str(payload.get("email", "")).strip()
     password = str(payload.get("password", ""))
-    user = find_user_by_email(email)
-    if not user or user["password"] != password:
+    user = fetch_user_by_email(email)
+    if not user or user.get("password") != password:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
     return {"token": f"demo.{user['id']}", "user": public_user(user), "demo": True}
 
@@ -364,7 +115,7 @@ def login(payload: dict[str, Any]):
 @app.post("/api/auth/register")
 def register(payload: dict[str, Any]):
     email = str(payload.get("email", "")).strip()
-    if find_user_by_email(email):
+    if fetch_user_by_email(email):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with that email already exists.")
     name = str(payload.get("name", "")).strip() or "New User"
     password = str(payload.get("password", ""))
@@ -379,7 +130,7 @@ def register(payload: dict[str, Any]):
         "solvedIds": [],
         "attemptedIds": [],
     }
-    EXTRA_USERS.append(user)
+    upsert_user(user)
     return {"token": f"demo.{user['id']}", "user": public_user(user), "demo": True}
 
 
@@ -403,7 +154,7 @@ def list_problems(
     token: str | None = Depends(auth_token_from_header),
 ):
     current_user = optional_current_user(token)
-    visible = PROBLEMS
+    visible = fetch_all_problems()
     if not includeUnpublished and not (current_user and current_user.get("role") == "admin"):
         visible = [problem for problem in visible if problem.get("published", True)]
 
@@ -425,7 +176,7 @@ def list_problems(
 
 @app.get("/api/problems/{problem_id}")
 def get_problem(problem_id: str):
-    problem = get_problem_by_id_or_slug(problem_id)
+    problem = fetch_problem_by_id_or_slug(problem_id)
     if problem is None or not problem.get("published", False):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found.")
     return problem
@@ -436,7 +187,7 @@ def admin_get_problem(problem_id: str, token: str | None = Depends(auth_token_fr
     current_user = get_current_user(token)
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required.")
-    problem = get_problem_by_id_or_slug(problem_id)
+    problem = fetch_problem_by_id_or_slug(problem_id)
     if problem is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found.")
     return problem
@@ -458,7 +209,7 @@ def admin_create_problem(payload: dict[str, Any], token: str | None = Depends(au
         problem["languages"] = ["python"]
     if "tags" not in problem:
         problem["tags"] = []
-    PROBLEMS.insert(0, problem)
+    upsert_problem(problem)
     return problem
 
 
@@ -467,13 +218,14 @@ def admin_update_problem(problem_id: str, payload: dict[str, Any], token: str | 
     current_user = get_current_user(token)
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required.")
-    for index, problem in enumerate(PROBLEMS):
-        if problem["id"] == problem_id or problem["slug"] == problem_id:
-            PROBLEMS[index].update(payload)
-            if "slug" not in PROBLEMS[index] or not PROBLEMS[index]["slug"]:
-                PROBLEMS[index]["slug"] = PROBLEMS[index]["id"]
-            return PROBLEMS[index]
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found.")
+    problem = fetch_problem_by_id_or_slug(problem_id)
+    if problem is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found.")
+    updated = {**problem, **payload}
+    if not updated.get("slug"):
+        updated["slug"] = updated["id"]
+    upsert_problem(updated)
+    return updated
 
 
 @app.delete("/api/admin/problems/{problem_id}")
@@ -481,21 +233,20 @@ def admin_delete_problem(problem_id: str, token: str | None = Depends(auth_token
     current_user = get_current_user(token)
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required.")
-    for index, problem in enumerate(PROBLEMS):
-        if problem["id"] == problem_id or problem["slug"] == problem_id:
-            del PROBLEMS[index]
-            return {"ok": True}
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found.")
+    if not delete_problem(problem_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found.")
+    return {"ok": True}
 
 
 @app.get("/api/profile")
 def profile(token: str | None = Depends(auth_token_from_header)):
     user = get_current_user(token)
-    accepted = [submission for submission in SUBMISSIONS if submission.get("status") == "Accepted"]
+    submissions = fetch_all_submissions()
+    accepted = [submission for submission in submissions if submission.get("status") == "Accepted"]
     solved_ids = {submission["problemId"] for submission in accepted}
-    recent = sorted(SUBMISSIONS, key=lambda item: item.get("createdAt", ""), reverse=True)[:8]
+    recent = sorted(submissions, key=lambda item: item.get("createdAt", ""), reverse=True)[:8]
     activity = [0] * 48
-    for submission in SUBMISSIONS:
+    for submission in submissions:
         created = submission.get("createdAt")
         if not created:
             continue
@@ -503,8 +254,7 @@ def profile(token: str | None = Depends(auth_token_from_header)):
             dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
         except ValueError:
             continue
-        today = datetime.now(timezone.utc)
-        delta_days = max(0, int((today - dt).total_seconds() // (60 * 60 * 24)))
+        delta_days = max(0, int((datetime.now(timezone.utc) - dt).total_seconds() // (60 * 60 * 24)))
         if delta_days < len(activity):
             activity[delta_days] += 1
     return {
@@ -512,7 +262,7 @@ def profile(token: str | None = Depends(auth_token_from_header)):
         "email": user["email"],
         "role": user["role"],
         "solved": len(solved_ids),
-        "submissions": len(SUBMISSIONS),
+        "submissions": len(submissions),
         "accepted": len(accepted),
         "recent": recent,
         "activity": activity,
@@ -522,16 +272,16 @@ def profile(token: str | None = Depends(auth_token_from_header)):
 @app.get("/api/submissions")
 def list_submissions(token: str | None = Depends(auth_token_from_header)):
     get_current_user(token)
-    return SUBMISSIONS
+    return fetch_all_submissions()
 
 
 @app.get("/api/submissions/{submission_id}")
 def get_submission(submission_id: str, token: str | None = Depends(auth_token_from_header)):
     get_current_user(token)
-    for submission in SUBMISSIONS:
-        if submission["id"] == submission_id:
-            return submission
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found.")
+    submission = fetch_submission_by_id(submission_id)
+    if submission is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found.")
+    return submission
 
 
 @app.post("/api/run")
@@ -540,7 +290,7 @@ def run_code(payload: dict[str, Any], token: str | None = Depends(auth_token_fro
     problem_id = str(payload.get("problemId", "")).strip()
     language = str(payload.get("language", "python")).strip()
     code = str(payload.get("code", ""))
-    problem = get_problem_by_id_or_slug(problem_id)
+    problem = fetch_problem_by_id_or_slug(problem_id)
     if problem is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found.")
     if language not in problem.get("languages", []):
@@ -554,7 +304,7 @@ def submit_code(payload: dict[str, Any], token: str | None = Depends(auth_token_
     problem_id = str(payload.get("problemId", "")).strip()
     language = str(payload.get("language", "python")).strip()
     code = str(payload.get("code", ""))
-    problem = get_problem_by_id_or_slug(problem_id)
+    problem = fetch_problem_by_id_or_slug(problem_id)
     if problem is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found.")
     if language not in problem.get("languages", []):
@@ -575,13 +325,15 @@ def submit_code(payload: dict[str, Any], token: str | None = Depends(auth_token_
         "testsTotal": result["testsTotal"],
         "cases": result["cases"],
     }
-    SUBMISSIONS.insert(0, submission)
+    insert_submission(submission)
+
     if result["status"] == "Accepted":
-        current = find_user_by_id(user["id"])
+        current = fetch_user_by_id(user["id"])
         if current:
             solved_set = set(current.get("solvedIds", []))
             solved_set.add(problem["id"])
             current["solvedIds"] = sorted(solved_set)
+            upsert_user(current)
     return submission
 
 
