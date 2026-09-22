@@ -2,11 +2,11 @@
 
 CodeSoft is a web-based code execution platform focused on solving programming problems, submitting code, and viewing execution results.
 
-The project is being developed as a full-stack and DevOps portfolio project. The frontend is currently implemented as a lightweight static application using vanilla HTML, CSS, and JavaScript. The backend, execution infrastructure, containerization, CI/CD, Kubernetes, and monitoring will be added progressively.
+The project is being developed as a full-stack and DevOps portfolio project. The frontend is implemented as a lightweight static application using vanilla HTML, CSS, and JavaScript. The current backend uses FastAPI, SQLite, and a worker/queue execution layer; containerization, hardened isolation, CI/CD, Kubernetes, and monitoring will be added progressively.
 
 ## Current Status
 
-The current version contains the basic frontend and uses mock data and a deterministic mock judge.
+The current version includes a working FastAPI backend with SQLite persistence and real Python subprocess evaluation. C++ and Java still use the deterministic fallback judge, and the execution process is not yet a hardened public sandbox.
 
 ## Workflow chart
 
@@ -21,13 +21,13 @@ Implemented:
 - Problem-solving workspace
 - Language selection and starter code
 - Run and Submit flows
-- Mock execution results
+- Backend execution results
 - Submission history
 - User profile
 - Basic admin problem management
 - API abstraction layer prepared for the FastAPI backend
 
-The frontend does not execute user code yet. The current judge only simulates execution results for UI development.
+The frontend sends run and submit requests to the backend when `useMock` is `false` in `frontend/js/config.js`. Python submissions are evaluated in a timeout-limited subprocess. The mock judge remains available as a frontend development fallback, but it is not the normal backend mode.
 
 ## Technology
 
@@ -38,10 +38,11 @@ Current frontend:
 - Vanilla JavaScript
 - ES modules
 
-Planned application stack:
+Current and planned application stack:
 
 - FastAPI
-- PostgreSQL
+- SQLite during early development
+- PostgreSQL later
 - Redis
 - Worker-based code execution
 - Docker
@@ -75,9 +76,89 @@ frontend/
 
 The exact directory layout may evolve as development continues.
 
-## Running the Frontend
+## Running the application locally
 
-The frontend uses ES modules, so it should be served through HTTP rather than opened directly with `file://`.
+### Prerequisites
+
+- Python 3.10 or newer
+- PowerShell on Windows, or an equivalent terminal
+- Redis is optional for local development because the backend falls back to an in-memory queue
+
+### Install the backend dependencies
+
+From the repository root:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+### Start the full application
+
+Run this from the repository root:
+
+```powershell
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8000/login.html
+```
+
+The FastAPI application serves both the `/api` routes and the static files in `frontend/`, so a separate frontend server is not needed for the normal workflow.
+
+If port 8000 is already in use, use another port:
+
+```powershell
+python -m uvicorn main:app --host 0.0.0.0 --port 8001
+```
+
+Then open `http://127.0.0.1:8001/login.html`.
+
+### Test the backend without the browser
+
+Check that the application imports:
+
+```powershell
+python -c "import main; print('import-ok')"
+```
+
+With Uvicorn running, check the health endpoint:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/health
+```
+
+Log in with the seeded demo account:
+
+```powershell
+$body = '{"email":"demo@codesoft.dev","password":"demo-pass-1"}'
+Invoke-RestMethod http://127.0.0.1:8000/api/auth/login -Method Post -ContentType 'application/json' -Body $body
+```
+
+The response should include a token such as `demo.u_demo`. Use that token to list problems:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/problems
+```
+
+For a complete run/submit example, see [explanation.md](explanation.md).
+
+### Optional Redis setup
+
+Redis is not required for the local fallback mode. If a Redis server is available, set its URL before starting Uvicorn:
+
+```powershell
+$env:REDIS_URL = "redis://localhost:6379/0"
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+The worker tries Redis first and uses the in-memory queue if Redis cannot be reached.
+
+## Running only the frontend
+
+The frontend uses ES modules, so it should be served through HTTP rather than opened directly with `file://`. This mode is useful for frontend-only work; it does not provide the FastAPI backend.
 
 ```bash
 cd frontend
@@ -106,11 +187,24 @@ Password: admin-pass-1
 
 These accounts exist only for frontend demonstration and are not suitable for production use.
 
+## Backend and execution notes
+
+The main backend files are:
+
+- `main.py` — FastAPI routes, authentication, startup, and frontend serving
+- `database.py` — SQLite initialization, seed data, and persistence helpers
+- `worker.py` — Redis/in-memory queue, worker thread, and code evaluation
+- `requirements.txt` — Python dependencies
+- `agent.md` — concise project context and milestone notes
+- `explanation.md` — detailed developer guide and troubleshooting reference
+
+The current `/api/run` and `/api/submissions` flow enqueues a job and then processes it synchronously so the existing frontend receives a complete result immediately. The background worker and queue abstraction establish the next step toward asynchronous processing, but status polling and durable job tracking are not implemented yet.
+
 ## Mock Data and Execution
 
 Problem data is currently stored in the frontend data modules.
 
-The mock judge does not execute submitted code. It returns deterministic results based on the submitted source so the execution workflow can be developed before the backend exists.
+The frontend mock judge does not execute submitted code. It returns deterministic results based on the submitted source and is only used when `useMock` is enabled. In the normal backend configuration, Python code is evaluated by `worker.py`; C++ and Java currently use the legacy deterministic fallback.
 
 Current simulated results include:
 
@@ -136,12 +230,12 @@ The intended API base is:
 /api
 ```
 
-When the FastAPI backend is available:
+The FastAPI backend is now available locally:
 
-1. Implement the documented `/api` routes.
-2. Configure Nginx to proxy `/api` to FastAPI.
-3. Set `useMock` to `false` in `frontend/js/config.js`.
-4. Keep the API base as `/api`.
+1. Start FastAPI with the command in [Running the application locally](#running-the-application-locally).
+2. Keep `useMock` set to `false` in `frontend/js/config.js`.
+3. Keep the API base as `/api`.
+4. For a production deployment, configure Nginx to proxy `/api` to FastAPI.
 
 The frontend should not contain hard-coded machine IP addresses.
 

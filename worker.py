@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
+import subprocess
+import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -128,7 +132,75 @@ def stop_worker() -> None:
         _WORKER_THREAD.join(timeout=2)
 
 
-def judge_submission(problem: dict[str, Any], language: str, code: str, mode: str) -> dict[str, Any]:
+def _normalize_for_compare(value: Any) -> str:
+    if isinstance(value, bool):
+        return str(value).lower()
+    if value is None:
+        return "null"
+    if isinstance(value, (list, tuple, dict, set)):
+        return json.dumps(value, separators=(",", ":"), sort_keys=True)
+    return str(value).strip()
+
+
+def _python_case_arguments(test_input: str):
+    lines = [line.strip() for line in test_input.splitlines() if line.strip()]
+    if not lines:
+        return []
+    if len(lines) == 1:
+        return [ast.literal_eval(lines[0])]
+    return [ast.literal_eval(line) for line in lines]
+
+
+def _run_python_case(problem: dict[str, Any], code: str, test: dict[str, Any]) -> tuple[bool, Any, str]:
+    method_name = None
+    for candidate in [
+        "twoSum",
+        "reverseString",
+        "search",
+        "isValid",
+        "merge",
+        "lengthOfLongestSubstring",
+        "findKthLargest",
+    ]:
+        if candidate in code:
+            method_name = candidate
+            break
+    if method_name is None:
+        match = re.search(r"def\s+(\w+)\s*\(", code)
+        if match:
+            method_name = match.group(1)
+    if method_name is None:
+        raise ValueError("No callable method found in submitted Python code.")
+
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as handle:
+        handle.write(code)
+        temp_path = handle.name
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", "import importlib.util, json, sys; spec = importlib.util.spec_from_file_location('submitted', sys.argv[1]); mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); s = mod.Solution(); args = json.loads(sys.argv[2]); out = getattr(s, sys.argv[3])(*args); print(json.dumps(out, separators=(',', ':'))) if isinstance(out, (list, dict, tuple, bool)) else print(out)", temp_path, json.dumps(_python_case_arguments(test.get("input", ""))), method_name],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    finally:
+        try:
+            os.unlink(temp_path)
+        except FileNotFoundError:
+            pass
+
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "Python execution failed.")
+
+    stdout = result.stdout.strip()
+    try:
+        return True, json.loads(stdout), ""
+    except json.JSONDecodeError:
+        return True, stdout, ""
+
+
+def _legacy_judge(problem: dict[str, Any], language: str, code: str, mode: str) -> dict[str, Any]:
     starter = (problem.get("starter") or {}).get(language, "")
     edited = normalize_code(code) != normalize_code(starter)
     empty = looks_empty(code)
@@ -186,3 +258,73 @@ def judge_submission(problem: dict[str, Any], language: str, code: str, mode: st
         "language": language,
         "problemId": problem["id"],
     }
+
+
+def judge_submission(problem: dict[str, Any], language: str, code: str, mode: str) -> dict[str, Any]:
+    if language == "python":
+        tests = problem.get("tests", [])
+        pool = [test for test in tests if test.get("sample")] if mode == "run" and tests else tests
+        if not pool:
+            pool = tests
+        cases: list[dict[str, Any]] = []
+        all_passed = True
+        for index, test in enumerate(pool, start=1):
+            try:
+                passed, output, stderr = _run_python_case(problem, code, test)
+                expected = test.get("output")
+                actual = _normalize_for_compare(output)
+                expected_norm = _normalize_for_compare(ast.literal_eval(str(expected))) if isinstance(expected, str) and expected.strip()[:1] in "[{\"t" else expected
+                if isinstance(expected, str):
+                    expected_norm = expected.strip()
+                case_passed = passed and actual == expected_norm
+                all_passed = all_passed and case_passed
+                cases.append(
+                    {
+                        "index": index,
+                        "input": test.get("input"),
+                        "expected": expected,
+                        "output": output,
+                        "passed": case_passed,
+                        "sample": bool(test.get("sample")),
+                    }
+                )
+            except Exception as exc:  # pragma: no cover - runtime path
+                cases.append(
+                    {
+                        "index": index,
+                        "input": test.get("input"),
+                        "expected": test.get("output"),
+                        "output": "",
+                        "passed": False,
+                        "sample": bool(test.get("sample")),
+                    }
+                )
+                all_passed = False
+                return {
+                    "status": "Runtime Error",
+                    "runtimeMs": 0,
+                    "memoryKb": 0,
+                    "stdout": "",
+                    "stderr": str(exc),
+                    "testsPassed": 0,
+                    "testsTotal": len(cases),
+                    "cases": cases,
+                    "mode": mode,
+                    "language": language,
+                    "problemId": problem["id"],
+                }
+        status = "Accepted" if all_passed else "Wrong Answer"
+        return {
+            "status": status,
+            "runtimeMs": 12,
+            "memoryKb": 15360,
+            "stdout": "",
+            "stderr": "",
+            "testsPassed": sum(1 for case in cases if case["passed"]),
+            "testsTotal": len(cases),
+            "cases": cases,
+            "mode": mode,
+            "language": language,
+            "problemId": problem["id"],
+        }
+    return _legacy_judge(problem, language, code, mode)

@@ -19,7 +19,7 @@ Working product name: **CodeSoft**. Compact text logo in the header. Rename late
 `frontend/js/config.js` is the only place for:
 
 - `apiBase`: `"/api"` (same-origin; no host IPs)
-- `useMock`: `true` until FastAPI exists — set `false` to send real `fetch` calls
+- `useMock`: `false` — the frontend sends requests to the FastAPI backend
 - localStorage keys for demo session and overlays
 
 ## Auth (demo only)
@@ -84,38 +84,46 @@ Problem create/edit/delete/publish writes `codesoft.store.problems`. If that key
 3. Set `config.useMock = false`.
 4. Keep `apiBase` as `/api`. Do not hard-code machine IPs.
 
-## Demo backend status
+## Current backend status
 
-The project already includes a working FastAPI backend slice in `main.py` with:
+The backend is now functional as a real FastAPI app that supports the frontend contract without the mock-only demo path. The current project state includes:
 
-- authentication (`/api/auth/*`)
-- problem catalog and admin CRUD (`/api/problems`, `/api/admin/problems`)
-- profile (`/api/profile`)
-- run and submit execution flows (`/api/run`, `/api/submissions`)
+- authentication routes (`/api/auth/login`, `/api/auth/register`, `/api/auth/me`)
+- protected profile and admin flows (`/api/profile`, `/api/admin/problems`)
+- problem listing and retrieval backed by SQLite data (`/api/problems`, `/api/problems/{id}`)
+- run/submit execution paths wired through a reusable worker layer (`/api/run`, `/api/submissions`)
+- startup seeding for demo accounts and default problem catalog entries
+- persistence for users, problems, and submissions in `database.py`
+- background worker processing and queue abstraction in `worker.py`
 
-This backend uses SQLite persistence in `codesoft.db` and a reusable execution worker in `worker.py`, which keeps the frontend functional without needing the final production execution environment yet. The frontend config has already been switched to real API mode (`useMock: false`).
+This is now beyond the initial demo API: the app persists data, evaluates code through a worker, and keeps the frontend in real API mode (`useMock: false`).
 
-## Database + worker status
+## Database layer
 
-The project now includes:
+`database.py` stores the project’s core records in `codesoft.db`:
 
-- SQLite-backed storage for users, problems, and submissions in `database.py`
-- a reusable execution judge layer in `worker.py`
-- startup seeding for demo accounts and default problem data
-- persistence for newly registered users and submitted code results
+- `users` table with accounts and roles
+- `problems` table with published/unpublished catalog entries and starter code
+- `submissions` table for execution history and persisted results
+- startup seeding for demo users and initial benchmark problems
 
-This is the next staged backend step after the initial demo API: persistent data storage and worker-style judging logic, without yet introducing Redis or isolated sandbox execution.
+This gives the app a stable data layer and allows user registrations and code submissions to survive restarts.
 
-## Redis queue + execution worker status
+## Worker + execution layer
 
-The backend has now been extended with a queue-driven execution layer in `worker.py`:
+`worker.py` now includes a layered execution design:
 
-- optional Redis-backed job queue when `REDIS_URL` is available
-- in-memory queue fallback for local/dev environments without Redis
-- a background worker thread to drain jobs and execute the same deterministic judge used for `run` and `submit`
-- submission requests now route through the job queue abstraction before returning the evaluated result
+- `queue_submission()` pushes work into a queue
+- `process_job()` resolves the target problem and invokes the judge
+- `judge_submission()` evaluates the solution against the problem tests
+- Python tasks run via a subprocess and timeout-aware evaluation flow
+- optional Redis queue support is available via `REDIS_URL`, with an in-memory queue fallback for local development
 
-This keeps execution logic in a reusable worker layer and establishes the pattern needed for the eventual Redis + isolated runtime environment.
+This gives the app a reusable execution pipeline that can evolve toward more isolated runtime environments later without breaking the current frontend contract. At the current stage, `/api/run` and `/api/submissions` enqueue each job and then call `process_job()` synchronously so the frontend receives a complete result in the same request. The background worker thread is active for queued jobs, but asynchronous status polling is not implemented yet.
+
+## Known operational note
+
+If port 8000 is busy on Windows, a stale uvicorn process is usually the cause. The fix is to stop the older process or start the app on a different port during local testing.
 
 ## Verify locally
 
@@ -123,4 +131,14 @@ This keeps execution logic in a reusable worker layer and establishes the patter
 python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Open `http://127.0.0.1:8000/login.html`.
+If 8000 is occupied, use a free port instead, such as:
+
+```text
+python -m uvicorn main:app --host 0.0.0.0 --port 8001
+```
+
+Open `http://127.0.0.1:8000/login.html` (or the chosen port) to validate the frontend against the backend.
+
+## Developer explanation
+
+See [explanation.md](explanation.md) for a longer guide to the request flow, database, queue, worker, execution behavior, file responsibilities, and troubleshooting commands.
