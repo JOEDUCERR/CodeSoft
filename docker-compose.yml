@@ -1,0 +1,24 @@
+services:
+  backend:
+    build: .
+    container_name: codesoft-backend
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DB_PATH: /app/data/codesoft.db
+    volumes:
+      - codesoft-data:/app/data
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: codesoft-redis
+    volumes:
+      - redis-data:/data
+
+volumes:
+  codesoft-data:
+  redis-data:
+

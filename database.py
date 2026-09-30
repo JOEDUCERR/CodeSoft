@@ -1,12 +1,12 @@
 from __future__ import annotations
-
+import os
 import json
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "codesoft.db"
+DB_PATH = Path(os.getenv("DB_PATH", BASE_DIR / "codesoft.db"))
 
 DEMO_USERS = [
     {
