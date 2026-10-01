@@ -4,8 +4,8 @@
  * Production (Nginx): apiBase stays "/api" so the same origin serves
  * static files and reverse-proxies FastAPI.
  *
- * useMock: true until the backend exists. Flip to false when
- * FastAPI routes are live. Do not put host IPs or secrets here.
+ * useMock is false: the FastAPI API is the source of truth. Do not put
+ * host IPs or secrets here.
  *
  * Demo auth in localStorage is not production security.
  */

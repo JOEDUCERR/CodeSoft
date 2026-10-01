@@ -77,68 +77,53 @@ Problem create/edit/delete/publish writes `codesoft.store.problems`. If that key
 
 `base.css` tokens, `layout.css` header/workspace, `components.css` table/forms/editor, `pages.css` home/admin. Black/white/gray; semantic green/red/amber only on status.
 
-## Connecting the backend later
+## Backend status — handoff (2026-10-01)
 
-1. Implement FastAPI routes under `/api`.
-2. Nginx: `location /api { proxy_pass http://fastapi; }`
-3. Set `config.useMock = false`.
-4. Keep `apiBase` as `/api`. Do not hard-code machine IPs.
+This work is on the `complete-backend` branch. The frontend is in real API
+mode (`frontend/js/config.js` has `useMock: false`), and `main.py` serves both
+the static frontend and the FastAPI `/api` routes.
 
-## Current backend status
+### Implemented
 
-The backend is now functional as a real FastAPI app that supports the frontend contract without the mock-only demo path. The current project state includes:
+- PostgreSQL-backed SQLAlchemy models in `database.py`: `User`, `Problem`, and
+  `Submission`. The application defaults to PostgreSQL; SQLite exists only for
+  the automated tests through `DATABASE_URL`.
+- Startup creates schema and seeds three published problems plus the demo user
+  and admin account. This seed data is backend-owned, not read from frontend
+  JavaScript modules.
+- Argon2 password hashing and signed JWT bearer authentication in `security.py`.
+  `JWT_SECRET` must be set to a strong secret outside local development.
+- Auth (`/api/auth/register`, `/login`, `/me`), public catalogue/retrieval,
+  profile, and admin problem CRUD routes.
+- Submission ownership is enforced: users can only list/read their own
+  submissions; admin-only problem routes require an admin JWT.
+- `docker-compose.yml` provisions FastAPI, PostgreSQL 16, and Redis 7 with
+  health checks and persistent volumes.
+- Redis queue adapter in `worker.py`; submitted jobs are pushed to
+  `codesoft:execution-jobs`.
+- Basic API tests live in `tests/test_api.py`; `README.md` contains commands
+  for Docker, curl smoke tests, Redis queue inspection, and pytest.
 
-- authentication routes (`/api/auth/login`, `/api/auth/register`, `/api/auth/me`)
-- protected profile and admin flows (`/api/profile`, `/api/admin/problems`)
-- problem listing and retrieval backed by SQLite data (`/api/problems`, `/api/problems/{id}`)
-- run/submit execution paths wired through a reusable worker layer (`/api/run`, `/api/submissions`)
-- startup seeding for demo accounts and default problem catalog entries
-- persistence for users, problems, and submissions in `database.py`
-- background worker processing and queue abstraction in `worker.py`
+### Deliberately deferred: isolated execution pipeline
 
-This is now beyond the initial demo API: the app persists data, evaluates code through a worker, and keeps the frontend in real API mode (`useMock: false`).
+The old backend ran submitted Python directly in the FastAPI container and
+used deterministic C++/Java fallbacks. That was unsafe and was removed.
+`POST /api/submissions` now stores a `Queued` submission then enqueues it in
+Redis; `/api/run` validates and reports the same queued execution boundary.
 
-## Database layer
+The next task is a separate sandbox runner which consumes
+`codesoft:execution-jobs`, runs source in constrained language containers
+(network disabled, CPU/memory/PID/time limits, read-only filesystem), and
+updates the matching PostgreSQL submission with status, output, and test-case
+details. Do not restore direct `subprocess` execution to `main.py` or
+`worker.py`.
 
-`database.py` stores the project’s core records in `codesoft.db`:
+### Verification notes
 
-- `users` table with accounts and roles
-- `problems` table with published/unpublished catalog entries and starter code
-- `submissions` table for execution history and persisted results
-- startup seeding for demo users and initial benchmark problems
-
-This gives the app a stable data layer and allows user registrations and code submissions to survive restarts.
-
-## Worker + execution layer
-
-`worker.py` now includes a layered execution design:
-
-- `queue_submission()` pushes work into a queue
-- `process_job()` resolves the target problem and invokes the judge
-- `judge_submission()` evaluates the solution against the problem tests
-- Python tasks run via a subprocess and timeout-aware evaluation flow
-- optional Redis queue support is available via `REDIS_URL`, with an in-memory queue fallback for local development
-
-This gives the app a reusable execution pipeline that can evolve toward more isolated runtime environments later without breaking the current frontend contract. At the current stage, `/api/run` and `/api/submissions` enqueue each job and then call `process_job()` synchronously so the frontend receives a complete result in the same request. The background worker thread is active for queued jobs, but asynchronous status polling is not implemented yet.
-
-## Known operational note
-
-If port 8000 is busy on Windows, a stale uvicorn process is usually the cause. The fix is to stop the older process or start the app on a different port during local testing.
-
-## Verify locally
-
-```text
-python -m uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-If 8000 is occupied, use a free port instead, such as:
-
-```text
-python -m uvicorn main:app --host 0.0.0.0 --port 8001
-```
-
-Open `http://127.0.0.1:8000/login.html` (or the chosen port) to validate the frontend against the backend.
-
-## Developer explanation
-
-See [explanation.md](explanation.md) for a longer guide to the request flow, database, queue, worker, execution behavior, file responsibilities, and troubleshooting commands.
+`python3 -m compileall main.py database.py security.py worker.py tests` and
+`docker compose config --quiet` pass. `docker compose up --build -d` was
+verified with `GET /api/health` returning `{"status":"ok"}` and the Redis
+queue length command. The suite passes in the supported Python 3.12 Docker
+image with `docker compose exec -T backend pytest -q`. The host Python 3.14
+test transport stalled before a route invocation, so use the container command
+as the reliable verification command for now.
