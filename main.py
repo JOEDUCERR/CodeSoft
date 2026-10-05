@@ -161,17 +161,32 @@ def submit(payload: dict[str, Any], user: User, db: Session, persist: bool) -> d
     tests_total = len(item.tests or [])
     sample_count = len([t for t in (item.tests or []) if t.get("sample", False)])
     if not persist:
-        # For /api/run return immediate queued response with sample info
-        return {
-            "status": "Queued",
-            "runtimeMs": None,
-            "memoryKb": None,
-            "stdout": "",
-            "stderr": "Queued for execution...",
-            "testsPassed": 0,
-            "testsTotal": sample_count or tests_total,
-            "cases": []
+        # For /api/run, create a temporary submission record so polling /api/submissions/{id} works; enqueue with explicit type="run".
+        # This fulfills the real execution request for Run without immediate fabrication. Frontend must poll for result.
+        temp_id = str(uuid4())
+        result = Submission(
+            id=temp_id,
+            user_id=user.id,
+            problem_id=item.id,
+            language=language,
+            code=code,
+            status="Queued",
+            tests_total=sample_count or tests_total
+        )
+        db.add(result)
+        db.commit()
+        job = {
+            "submissionId": temp_id,
+            "userId": user.id,
+            "problemId": item.id,
+            "language": language,
+            "code": code,
+            "type": "run"
         }
+        queue_submission(job)
+        db.refresh(result)
+        return submission_to_dict(result)
+
     result = Submission(
         user_id=user.id,
         problem_id=item.id,

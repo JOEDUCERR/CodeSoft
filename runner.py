@@ -79,17 +79,28 @@ def run_in_sandbox(language: str, code: str, tests: list, is_run: bool = False) 
         with open(work_dir / code_file, "w") as f:
             f.write(code)
         image = "python:3.12-slim"
-        # Simple harness that works for Two Sum and similar class-based problems
+        # General harness for class Solution with solve(self, *args) -> result matching execution contract.
+        # Input parsed to *args; output normalized and string-compared to expected (JSON or plain). No hard-coded twoSum.
         harness = f'''import json
 import sys
-from typing import List
+from typing import Any
 
 # User code
 {code}
 
 if "class Solution" not in {code!r}:
-    print(json.dumps([{{"index": 1, "passed": False, "output": "Missing Solution class", "expected": "", "input": ""}}]))
+    print(json.dumps([{{ "index": 1, "passed": False, "output": "Missing Solution class", "expected": "", "input": "" }}]))
     sys.exit(0)
+
+def parse_test_input(input_str: str):
+    lines = [line.strip() for line in input_str.strip().split("\\n") if line.strip()]
+    args = []
+    for line in lines:
+        try:
+            args.append(json.loads(line))
+        except json.JSONDecodeError:
+            args.append(line)
+    return args
 
 solution = Solution()
 results = []
@@ -97,36 +108,49 @@ tests = {json.dumps(tests)}
 for idx, test in enumerate(tests):
     try:
         input_str = test.get("input", "")
-        # Simple parse for Two Sum style: first line JSON array, second target
-        lines = input_str.strip().split("\\n")
-        if lines and len(lines) >= 1:
-            nums = json.loads(lines[0])
-            target = int(lines[1]) if len(lines) > 1 else 0
-            result = solution.twoSum(nums, target)
-            expected = json.loads(test.get("output", "[]"))
-            passed = result == expected
-            results.append({{"index": idx+1, "passed": passed, "output": str(result), "expected": test.get("output", ""), "input": input_str}})
-        else:
-            results.append({{"index": idx+1, "passed": False, "output": "parse error", "expected": test.get("output", ""), "input": input_str}})
+        args = parse_test_input(input_str)
+        # Contract: solve method must be implemented
+        if not hasattr(solution, "solve"):
+            raise AttributeError("solve method not found. Implement def solve(self, *args)")
+        result = solution.solve(*args)
+        expected = test.get("output", "")
+        # Normalize for comparison (handles list like [0,1], numbers, strings)
+        normalized_result = json.dumps(result, separators=(",", ":")) if isinstance(result, (list, dict)) else str(result).strip()
+        normalized_expected = json.dumps(expected, separators=(",", ":")) if isinstance(expected, (list, dict)) else str(expected).strip()
+        passed = normalized_result == normalized_expected
+        results.append({{ "index": idx+1, "passed": passed, "output": normalized_result, "expected": str(expected), "input": input_str }})
+    except AttributeError as e:
+        results.append({{ "index": idx+1, "passed": False, "output": str(e), "expected": test.get("output", ""), "input": input_str }})
     except Exception as e:
-        results.append({{"index": idx+1, "passed": False, "output": str(e), "expected": test.get("output", ""), "input": input_str}})
+        results.append({{ "index": idx+1, "passed": False, "output": str(e), "expected": test.get("output", ""), "input": input_str }})
 print(json.dumps(results))
 '''
         with open(work_dir / "run.py", "w") as f:
             f.write(harness)
-        docker_cmd = ["sh", "-c", f"timeout {TIMEOUT_SECONDS}s python run.py"]
+        docker_cmd = ["sh", "-c", f"timeout {TIMEOUT_SECONDS}s python -u run.py 2>&1"]
     elif language == "cpp":
         code_file = "solution.cpp"
         with open(work_dir / code_file, "w") as f:
             f.write(code)
         image = "gcc:latest"
-        docker_cmd = ["sh", "-c", f"g++ -std=c++17 solution.cpp -o solution && timeout {TIMEOUT_SECONDS} ./solution < /dev/null"]
+        # C++ harness: compile then run with test inputs piped. Assumes class Solution with solve method; uses stdin/stdout or simple main wrapper. Test cases piped one per run or use JSON harness if needed. For now, basic with input redirection for test.
+        # Note: For full test support, a C++ test driver would be ideal, but this fixes the < /dev/null issue and uses parse for input.
+        docker_cmd = ["sh", "-c", f'''g++ -std=c++17 solution.cpp -o solution && 
+for t in $(seq 0 {len(tests)-1}); do
+  echo "Test $t" 
+  timeout {TIMEOUT_SECONDS}s ./solution < <(echo -e "$(echo '{json.dumps([t["input"] for t in tests])}' | python3 -c 'import sys, json; print(\"\\n\".join(json.loads(sys.argv[1])))' )") || echo "Timeout or error"
+done''']
     elif language == "java":
         code_file = "Solution.java"
         with open(work_dir / code_file, "w") as f:
             f.write(code)
         image = "openjdk:17-slim"
-        docker_cmd = ["sh", "-c", f"javac Solution.java && timeout {TIMEOUT_SECONDS} java Solution"]
+        # Java harness: compile then run with test inputs. Similar limitations as C++; uses input redirection for tests. Assumes public class Solution with solve method.
+        docker_cmd = ["sh", "-c", f'''javac Solution.java && 
+for t in $(seq 0 {len(tests)-1}); do
+  echo "Test $t" 
+  timeout {TIMEOUT_SECONDS}s java -cp . Solution < <(echo -e "$(echo '{json.dumps([t["input"] for t in tests])}' | python3 -c 'import sys, json; print(\"\\n\".join([str(x) for x in json.loads(sys.argv[1])]))' )") || echo "Timeout or error"
+done''']
     else:
         return {"status": "Runtime Error", "stderr": f"Unsupported language: {language}"}
 
@@ -154,20 +178,32 @@ print(json.dumps(results))
                 if isinstance(parsed, list):
                     cases = parsed
                     passed_count = sum(1 for c in cases if c.get("passed", False))
-                    status = "Accepted" if passed_count == len(cases) else "Wrong Answer"
+                    status = "Accepted" if passed_count == len(cases) and passed_count > 0 else "Wrong Answer"
                 else:
                     cases = [parsed]
-                    passed_count = 1
-                    status = "Accepted"
+                    passed_count = 1 if parsed.get("passed", False) else 0
+                    status = "Accepted" if passed_count > 0 else "Wrong Answer"
             else:
-                # Fallback
-                passed_count = len(tests) if "Accepted" in output else 0
-                status = "Accepted" if passed_count > 0 else "Wrong Answer"
-                cases = [{"index": i+1, "input": t.get("input", ""), "output": output[:100], "expected": t.get("output", ""), "passed": True, "sample": t.get("sample", False)} for i, t in enumerate(tests[:3])]
+                # For C++/Java output, parse basic status; remove word-based heuristics
+                if "error" in output.lower() or "exception" in output.lower():
+                    status = "Compilation Error" if "compilation" in output.lower() or "cannot find" in output.lower() else "Runtime Error"
+                    passed_count = 0
+                else:
+                    status = "Wrong Answer"  # default; improve with better C++/Java harness later
+                    passed_count = 0
+                cases = [{"index": i+1, "input": t.get("input", ""), "output": output[:200], "expected": t.get("output", ""), "passed": False, "sample": t.get("sample", False)} for i, t in enumerate(tests[:3])]
         except json.JSONDecodeError:
-            cases = [{"index": i+1, "input": t.get("input", ""), "output": output[:100], "expected": t.get("output", ""), "passed": True, "sample": t.get("sample", False)} for i, t in enumerate(tests[:3])]
-            passed_count = len([c for c in cases if c["passed"]])
-            status = "Accepted" if passed_count > len(tests)//2 else "Wrong Answer"
+            # Fallback for non-JSON (C++/Java)
+            if "error" in output.lower() or "exception" in output.lower():
+                status = "Compilation Error" if "g\\+\\+" in output or "javac" in str(tests) else "Runtime Error"
+                passed_count = 0
+            elif "Timeout" in output:
+                status = "Time Limit Exceeded"
+                passed_count = 0
+            else:
+                status = "Wrong Answer"
+                passed_count = 0
+            cases = [{"index": i+1, "input": t.get("input", ""), "output": output[:200], "expected": t.get("output", ""), "passed": False, "sample": t.get("sample", False)} for i, t in enumerate(tests[:3])]
 
         return {
             "status": status,
@@ -179,7 +215,10 @@ print(json.dumps(results))
             "cases": cases
         }
     except docker.errors.ContainerError as e:
-        return {"status": "Runtime Error", "stderr": str(e.stderr if hasattr(e, 'stderr') else str(e)), "runtime_ms": 0}
+        stderr = str(e.stderr.decode() if hasattr(e, 'stderr') and isinstance(e.stderr, (bytes, bytearray)) else str(e))
+        if "g++" in stderr or "javac" in stderr or "compilation" in stderr.lower():
+            return {"status": "Compilation Error", "stderr": stderr, "runtime_ms": 0}
+        return {"status": "Runtime Error", "stderr": stderr, "runtime_ms": 0}
     except Exception as e:
         return {"status": "Runtime Error", "stderr": str(e), "runtime_ms": 0}
     finally:
@@ -191,10 +230,13 @@ print(json.dumps(results))
 
 
 def process_job(job: dict):
+    """Process a job from Redis queue. Supports type 'run' or 'submit'. Updates PostgreSQL with real execution result."""
     submission_id = job.get("submissionId")
     if not submission_id:
+        print("Job missing submissionId, skipping")
         return
 
+    print(f"[{datetime.now()}] Starting job for submission {submission_id} (type={job.get('type')})")
     update_submission(submission_id, {
         "status": "Running",
         "execution_started_at": datetime.now(timezone.utc)
@@ -204,23 +246,27 @@ def process_job(job: dict):
     try:
         sub = db.get(Submission, submission_id)
         if not sub:
+            print(f"Submission {submission_id} not found")
             return
         problem = db.get(Problem, sub.problem_id)
         if not problem:
             update_submission(submission_id, {"status": "Runtime Error", "stderr": "Problem not found"})
+            print(f"Problem not found for submission {submission_id}")
             return
 
-        # Determine tests: for /run use samples, for submit use all
-        # For /run use sample tests, for submit use all
-        is_run = job.get("type", "") == "run" or "run" in str(job)
-        tests = [t for t in (problem.tests or []) if t.get("sample", not is_run)]
+        # Explicit job type distinction - no fragile string checks
+        job_type = job.get("type", "submit")
+        is_run = job_type == "run"
+        # For run use only sample tests; for submit use all tests
+        tests = [t for t in (problem.tests or []) if t.get("sample", True) or not is_run]
 
+        print(f"Executing {len(tests)} tests for {sub.language} (is_run={is_run})")
         result = run_in_sandbox(sub.language, sub.code, tests, is_run)
 
         updates = {
-            "status": result["status"],
-            "runtime_ms": result.get("runtime_ms"),
-            "memory_kb": result.get("memory_kb"),
+            "status": result.get("status", "Wrong Answer"),
+            "runtime_ms": result.get("runtime_ms", 0),
+            "memory_kb": result.get("memory_kb", 0),
             "tests_passed": result.get("tests_passed", 0),
             "tests_total": len(tests),
             "cases": result.get("cases", []),
@@ -229,7 +275,9 @@ def process_job(job: dict):
             "execution_finished_at": datetime.now(timezone.utc)
         }
         update_submission(submission_id, updates)
+        print(f"[{datetime.now()}] Job {submission_id} completed with status {updates['status']}")
     except Exception as e:
+        print(f"Error processing job {submission_id}: {e}")
         update_submission(submission_id, {
             "status": "Runtime Error",
             "stderr": f"Worker error: {str(e)}",
