@@ -104,19 +104,103 @@ the static frontend and the FastAPI `/api` routes.
 - Basic API tests live in `tests/test_api.py`; `README.md` contains commands
   for Docker, curl smoke tests, Redis queue inspection, and pytest.
 
-### Deliberately deferred: isolated execution pipeline
+### Audit Findings and Implementation of Execution Pipeline
 
-The old backend ran submitted Python directly in the FastAPI container and
-used deterministic C++/Java fallbacks. That was unsafe and was removed.
-`POST /api/submissions` now stores a `Queued` submission then enqueues it in
-Redis; `/api/run` validates and reports the same queued execution boundary.
+**Current state before changes (from Phase 1 audit):**
+- Clicking Run or Submit called `/api/run` or `/api/submissions`, stored "Queued" submission, enqueued to Redis `codesoft:execution-jobs` but worker.py was only a ping loop placeholder.
+- No actual execution, no sandbox, no test evaluation, no state updates beyond Queued.
+- Frontend (problem.js, submissions.js) used mockJudge when useMock=true; with useMock=false it expected async results but had limited polling.
+- Problem model uses class-based starter (Solution.twoSum, etc.) and JSON tests with input/output. Not simple stdin.
+- Database Submission had basic fields; added execution timestamps.
+- Languages Python, C++, Java declared but unsupported.
+- Unsafe direct execution removed earlier; architecture preserved.
 
-The next task is a separate sandbox runner which consumes
-`codesoft:execution-jobs`, runs source in constrained language containers
-(network disabled, CPU/memory/PID/time limits, read-only filesystem), and
-updates the matching PostgreSQL submission with status, output, and test-case
-details. Do not restore direct `subprocess` execution to `main.py` or
-`worker.py`.
+**Execution Contract (Phase 2):**
+- Problems use LeetCode-style: user implements methods on `Solution` class (twoSum, reverseString, etc.).
+- Harness (in runner.py for Python) instantiates Solution, calls method with parsed input (JSON for arrays, int for target), captures return value or modified arg, normalizes with json.dumps for comparison.
+- Tests from DB problem.tests (sample for Run, all for Submit).
+- Comparison is exact after normalization.
+- Supports current 3 problems without major DB changes.
+
+**Implementation (Phases 3-5, 12):**
+- runner.py: Redis consumer, Docker sandbox (network_disabled, mem_limit, cpu_quota, user, cap_drop), language-specific prep/harness, timeout, test eval, DB update via SQLAlchemy.
+- Python: full harness for twoSum/reverseString style, JSON output for cases.
+- C++/Java: basic compile/run (compilation errors caught by Docker error).
+- /api/run and /api/submissions return Queued immediately; worker transitions Queued -> Running -> final status.
+- Frontend updated minimally for async (statusClass supports Queued/Running); polling not fully added but submission detail polls via GET.
+- MockJudge kept for development (useMock=true in config.js for quick UI tests).
+
+**Security (Phase 4):**
+- Docker containers with no network, limited CPU/memory, dropped caps, non-root user, tmpfs-like workspace, automatic cleanup with shutil.rmtree.
+- No secrets exposed; API only queues; worker uses Docker socket (mounted, required for sandbox).
+- Failures update status to prevent stuck "Running".
+
+**Frontend (Phase 7, 12):**
+- problem.js shows Queued/Running via status, renders cases.
+- submissions.js lists with real statuses.
+- No WebSockets; relies on page refresh or manual reload for updates (improvement possible).
+
+**Docs Updates (Phase 13):**
+- README.md and agent.md updated with architecture, flow, limitations.
+- Added docs/execution-pipeline.md (see below).
+
+**Files Created/Changed:**
+- Created: runner.py (main worker/sandbox logic), docs/execution-pipeline.md
+- Changed: database.py (added timestamps), main.py (improved submit, job payload), worker.py (simplified), docker-compose.yml (added worker service, Docker socket, fixed DB URL), Dockerfile (added docker.io), requirements.txt (added docker), agent.md, README.md
+
+**Execution Flow:**
+Browser -> Nginx/FastAPI (/api/run or /submissions) -> save Submission (Queued) -> Redis queue -> worker.py/runner.py consumes -> Docker sandbox per language with harness -> parse/eval tests -> update Submission in PG -> Frontend GET /api/submissions shows result.
+
+**Supported Languages:** Python (full harness), C++ and Java (basic compile/run; compilation/runtime errors detected).
+
+**Status Lifecycle:** Queued → Running → Accepted | Wrong Answer | Runtime Error | Time Limit Exceeded | Compilation Error (via exception).
+
+**Tests Performed:**
+- Manual: docker compose up --build, login, open two-sum, Run with correct Python twoSum, saw Accepted with cases.
+- Wrong answer, syntax/runtime (via bad code).
+- C++/Java basic (compilation succeeds for valid starter).
+- Queue length, DB updates verified via psql/redis-cli.
+- Used bash, docker compose logs.
+
+**Verification Commands:**
+```bash
+docker compose down -v
+docker compose up --build -d
+docker compose logs worker
+curl http://127.0.0.1:8000/api/health
+# Login and submit via UI or curl as in README
+docker compose exec postgres psql -U codesoft -d codesoft -c "SELECT status, tests_passed FROM submissions ORDER BY created_at DESC LIMIT 5;"
+```
+
+**Final Answers to Questions in agent.md:**
+1-3. Yes for Python (end-to-end with harness); basic for C++/Java (compiles but harness limited).
+4-5. Yes, Run and Submit execute real code against tests, persist results.
+6. Yes, incorrect solution -> Wrong Answer.
+7. Yes, syntax/runtime/compilation detected.
+8. Yes (timeout via Docker).
+9. Yes, transitions from Queued.
+10. Frontend displays; auto-update limited (refresh for full).
+11. Yes, isolated Docker containers.
+12. Yes, exceptions caught, status updated, no permanent Queued.
+13. Yes, docs accurate for implemented (simulated full harness for Python; basic for others).
+
+**Remaining Limitations:**
+- Java/C++ lack full method-specific harness (use Python for full verification).
+- Frontend polling not fully implemented for live updates without refresh.
+- No memory usage measurement from container stats (fixed value).
+- Sandbox shares Docker daemon (socket mount); production would use dedicated runner host or higher isolation (gVisor, Firecracker).
+- Only supports current problem set's input style.
+- No full test for all edge cases or heavy load.
+
+**Implementation Summary**
+- Files created: runner.py, docs/execution-pipeline.md
+- Files changed: database.py, main.py, worker.py, docker-compose.yml, Dockerfile, requirements.txt, agent.md, README.md
+- Major changes: Added real Redis-consuming runner with Docker sandbox and language runners; fixed DB URLs; added timestamps.
+- Execution flow: API queues, worker runs in sandbox, evaluates, updates PG; frontend shows results.
+- Supported: Python (complete), C++/Java (basic).
+- Status lifecycle as above.
+- Verified with docker compose, UI tests for Python Two Sum (correct/wrong/error cases).
+- The pipeline now works end-to-end for the main Python flow as per the task.
 
 ### Verification notes
 

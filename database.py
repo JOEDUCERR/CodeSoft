@@ -62,6 +62,8 @@ class Submission(Base):
     stdout: Mapped[str] = mapped_column(Text, default="")
     stderr: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    execution_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    execution_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     user: Mapped[User] = relationship(back_populates="submissions")
     problem: Mapped[Problem] = relationship()
 
@@ -81,7 +83,24 @@ def problem_to_dict(p: Problem, summary: bool = False) -> dict[str, Any]:
 
 
 def submission_to_dict(s: Submission) -> dict[str, Any]:
-    return {"id": s.id, "problemId": s.problem_id, "problemTitle": s.problem.title, "language": s.language, "status": s.status, "runtimeMs": s.runtime_ms, "memoryKb": s.memory_kb, "createdAt": s.created_at, "code": s.code, "testsPassed": s.tests_passed, "testsTotal": s.tests_total, "cases": s.cases, "stdout": s.stdout, "stderr": s.stderr}
+    return {
+        "id": s.id,
+        "problemId": s.problem_id,
+        "problemTitle": s.problem.title if s.problem else None,
+        "language": s.language,
+        "status": s.status,
+        "runtimeMs": s.runtime_ms,
+        "memoryKb": s.memory_kb,
+        "createdAt": s.created_at,
+        "code": s.code,
+        "testsPassed": s.tests_passed,
+        "testsTotal": s.tests_total,
+        "cases": s.cases,
+        "stdout": s.stdout,
+        "stderr": s.stderr,
+        "executionStartedAt": s.execution_started_at,
+        "executionFinishedAt": s.execution_finished_at,
+    }
 
 
 def init_db() -> None:

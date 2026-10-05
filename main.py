@@ -157,13 +157,48 @@ def submit(payload: dict[str, Any], user: User, db: Session, persist: bool) -> d
     problem_id, language, code = str(payload.get("problemId", "")), str(payload.get("language", "")), str(payload.get("code", ""))
     item = db.scalar(select(Problem).where(or_(Problem.id == problem_id, Problem.slug == problem_id), Problem.published.is_(True)))
     if not item: fail(404, "Problem not found.")
-    if language not in item.languages or not code.strip(): fail(422, "A supported language and non-empty source code are required.")
-    if not persist: return {"status": "Queued", "runtimeMs": None, "memoryKb": None, "stdout": "", "stderr": "Queued for the execution service.", "testsPassed": 0, "testsTotal": len([t for t in item.tests if t.get("sample")]), "cases": []}
-    result = Submission(user_id=user.id, problem_id=item.id, language=language, code=code, status="Queued", tests_total=len(item.tests)); db.add(result); db.commit()
-    try: queue_submission({"submissionId": result.id, "userId": user.id, "problemId": item.id, "language": language, "code": code})
-    except Exception:
-        result.status, result.stderr = "Queue unavailable", "Redis is unavailable; the submission was saved but not queued."; db.commit(); fail(503, result.stderr)
-    db.refresh(result); return submission_to_dict(result)
+    if language not in (item.languages or []) or not code.strip(): fail(422, "A supported language and non-empty source code are required.")
+    tests_total = len(item.tests or [])
+    sample_count = len([t for t in (item.tests or []) if t.get("sample", False)])
+    if not persist:
+        # For /api/run return immediate queued response with sample info
+        return {
+            "status": "Queued",
+            "runtimeMs": None,
+            "memoryKb": None,
+            "stdout": "",
+            "stderr": "Queued for execution...",
+            "testsPassed": 0,
+            "testsTotal": sample_count or tests_total,
+            "cases": []
+        }
+    result = Submission(
+        user_id=user.id,
+        problem_id=item.id,
+        language=language,
+        code=code,
+        status="Queued",
+        tests_total=tests_total
+    )
+    db.add(result)
+    db.commit()
+    try:
+        job = {
+            "submissionId": result.id,
+            "userId": user.id,
+            "problemId": item.id,
+            "language": language,
+            "code": code,
+            "type": "submit"
+        }
+        queue_submission(job)
+    except Exception as e:
+        result.status = "Queue Error"
+        result.stderr = f"Redis unavailable: {str(e)}"
+        db.commit()
+        fail(503, result.stderr)
+    db.refresh(result)
+    return submission_to_dict(result)
 
 
 @app.post("/api/run")

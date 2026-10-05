@@ -6,13 +6,30 @@ services:
       - "8000:8000"
     environment:
       REDIS_URL: redis://redis:6379/0
-      DATABASE_URL: postgresql+psycopg://codesoft:codesoft@postgres:5432/codesoft
+      DATABASE_URL: postgresql://codesoft:codesoft@postgres:5432/codesoft
       JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-before-deploying}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  worker:
+    build: .
+    container_name: codesoft-worker
+    command: python runner.py
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://codesoft:codesoft@postgres:5432/codesoft
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   redis:
     image: redis:7-alpine

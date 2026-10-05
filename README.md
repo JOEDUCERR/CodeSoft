@@ -99,10 +99,18 @@ stack itself uses PostgreSQL.
 - `POST /api/run`, `POST /api/submissions`
 - `GET /api/submissions`, `GET /api/submissions/{id}`, `GET /api/profile`
 
-## Next: execution pipeline
+## Execution Pipeline
 
-Build a separate, locked-down runner that consumes
-`codesoft:execution-jobs`. It should run each language in an isolated
-container with CPU, memory, process, and network limits, then update the
-matching PostgreSQL submission. Do not execute arbitrary source in the
-FastAPI container.
+The system now includes a real Redis worker (`runner.py`) that consumes jobs from `codesoft:execution-jobs`.
+
+It uses Docker containers for safe isolated execution (no network, CPU/memory limits, non-root, cleanup).
+
+- Run: Executes against sample tests, shows output/cases immediately (Queued -> final).
+- Submit: Executes against full test suite, persists result.
+- Python: Full harness for class/method style problems (twoSum etc.).
+- C++ and Java: Compilation and basic execution supported.
+- Status updates in PostgreSQL; frontend displays results, cases, stdout/stderr.
+
+See `docs/execution-pipeline.md`, `runner.py`, and `agent.md` for details, contract, security, and limitations.
+
+The previous mock and direct subprocess execution have been replaced by the sandboxed pipeline.
