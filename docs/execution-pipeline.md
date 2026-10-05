@@ -7,7 +7,7 @@
 - **Redis**: Durable queue for jobs.
 - **Worker (runner.py)**: Consumes jobs, updates status to Running, runs in Docker sandbox, evaluates tests, updates PG with result.
 - **PostgreSQL**: Stores Problems (with tests, starter), Submissions (status, results, cases JSON).
-- **Sandbox**: Docker containers per job (isolated, no network, limits).
+- **Sandbox**: Docker containers per job (isolated, no network, limits, cwd workspace avoiding /tmp). Docker client works inside container (socket mounted, runs as root).
 
 No code execution in API container.
 
@@ -26,13 +26,13 @@ No code execution in API container.
 
 ## Worker Lifecycle
 
-1. blpop from queue.
+1. blpop(..., timeout=5) from queue; continue on None (timeout).
 2. Fetch Submission + Problem.
 3. Set Running + started_at.
-4. Prepare code + language-specific Docker run with harness.
+4. Prepare code + language-specific Docker run with harness (Python uses f-string-safe multi-line with class check).
 5. Capture output, parse test results (JSON for Python).
-6. Set final status, results, finished_at.
-7. Cleanup workspace.
+6. Set final status (Queued→Running→Accepted/WA/etc.), results, finished_at.
+7. Cleanup workspace (under cwd, no /tmp).
 
 Errors set appropriate status (never leaves in Running).
 
@@ -40,7 +40,7 @@ Errors set appropriate status (never leaves in Running).
 
 - Image per language (python:3.12-slim, gcc, openjdk).
 - `network_disabled=True`, `mem_limit=256m`, `cpu_quota=0.5`, non-root, drop all caps.
-- Tmp workspace mounted, cleaned with shutil.rmtree.
+- Sandbox workspace created under cwd (avoids /tmp), cleaned with shutil.rmtree.
 - Timeout via `timeout` command inside container.
 - No Docker socket access from user code.
 

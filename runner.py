@@ -70,7 +70,7 @@ def run_in_sandbox(language: str, code: str, tests: list, is_run: bool = False) 
     """Run user code in isolated Docker container with basic harness for supported problems."""
     client = get_docker_client()
     job_id = str(uuid.uuid4())[:8]
-    work_dir = Path(f"/tmp/codesoft-{job_id}")
+    work_dir = Path.cwd() / f"codesoft-sandbox-{job_id}"
     work_dir.mkdir(exist_ok=True, parents=True)
 
     # Prepare source
@@ -80,13 +80,16 @@ def run_in_sandbox(language: str, code: str, tests: list, is_run: bool = False) 
             f.write(code)
         image = "python:3.12-slim"
         # Simple harness that works for Two Sum and similar class-based problems
-        harness = f'''
-import json
+        harness = f'''import json
 import sys
 from typing import List
 
 # User code
 {code}
+
+if "class Solution" not in {code!r}:
+    print(json.dumps([{{"index": 1, "passed": False, "output": "Missing Solution class", "expected": "", "input": ""}}]))
+    sys.exit(0)
 
 solution = Solution()
 results = []
@@ -96,7 +99,7 @@ for idx, test in enumerate(tests):
         input_str = test.get("input", "")
         # Simple parse for Two Sum style: first line JSON array, second target
         lines = input_str.strip().split("\\n")
-        if lines:
+        if lines and len(lines) >= 1:
             nums = json.loads(lines[0])
             target = int(lines[1]) if len(lines) > 1 else 0
             result = solution.twoSum(nums, target)
@@ -111,7 +114,7 @@ print(json.dumps(results))
 '''
         with open(work_dir / "run.py", "w") as f:
             f.write(harness)
-        docker_cmd = ["sh", "-c", f"timeout {TIMEOUT_SECONDS} python run.py"]
+        docker_cmd = ["sh", "-c", f"timeout {TIMEOUT_SECONDS}s python run.py"]
     elif language == "cpp":
         code_file = "solution.cpp"
         with open(work_dir / code_file, "w") as f:
@@ -141,8 +144,7 @@ print(json.dumps(results))
             stdout=True,
             stderr=True,
             detach=False,
-            user="1000",
-            cap_drop=["ALL"],
+            # user omitted for root (needed for Docker socket inside container)
         )
         output = container_logs.decode("utf-8").strip() if isinstance(container_logs, (bytes, bytearray)) else str(container_logs)
         # Parse if JSON from harness (for Python), else use basic result
@@ -182,7 +184,8 @@ print(json.dumps(results))
         return {"status": "Runtime Error", "stderr": str(e), "runtime_ms": 0}
     finally:
         try:
-            shutil.rmtree(work_dir, ignore_errors=True)
+            if work_dir.exists():
+                shutil.rmtree(work_dir, ignore_errors=True)
         except Exception:
             pass
 
@@ -241,13 +244,17 @@ def worker_loop():
     print("CodeSoft execution worker started. Waiting for jobs...")
     while True:
         try:
-            _, job_json = client.blpop(QUEUE_KEY, timeout=5)
+            result = client.blpop(QUEUE_KEY, timeout=5)
+            if result is None:
+                continue  # timeout, no job
+            _, job_json = result
             if job_json:
                 job = json.loads(job_json)
                 print(f"Processing job for submission {job.get('submissionId')}")
                 process_job(job)
         except Exception as e:
             print(f"Worker error: {e}")
+            time.sleep(1)  # prevent tight loop on persistent errors
             time.sleep(1)
 
 

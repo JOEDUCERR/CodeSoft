@@ -5,9 +5,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install docker SDK and other runtime deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    docker.io \
+# Install docker CLI via docker.io (slim image limited); fallback to host docker via mounted socket. The python docker SDK uses socket directly.
+RUN apt-get update && apt-get install -y --no-install-recommends docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .

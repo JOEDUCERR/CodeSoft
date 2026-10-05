@@ -24,7 +24,7 @@ judge, and in-process Python subprocess execution are no longer used.
 Prerequisites: Docker Engine with the Compose plugin.
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
 Open [http://127.0.0.1:8000/login.html](http://127.0.0.1:8000/login.html).
