@@ -23,6 +23,14 @@ QUEUE_KEY = "codesoft:execution-jobs"
 TIMEOUT_SECONDS = 5
 MEMORY_LIMIT_MB = 256
 CPU_LIMIT = "0.5"
+SANDBOX_ROOT = Path(os.getenv("SANDBOX_ROOT", "/tmp/codesoft"))
+
+
+def get_sandbox_root() -> Path:
+    root = SANDBOX_ROOT
+    root.mkdir(parents=True, exist_ok=True, mode=0o777)
+    root.chmod(0o777)
+    return root
 
 
 def redis_client() -> redis.Redis:
@@ -69,9 +77,12 @@ def normalize_output(output: any) -> str:
 def run_in_sandbox(language: str, code: str, tests: list, is_run: bool = False) -> dict:
     """Run user code in isolated Docker container with basic harness for supported problems."""
     client = get_docker_client()
+    sandbox_root = get_sandbox_root()
     job_id = str(uuid.uuid4())[:8]
-    work_dir = Path.cwd() / f"codesoft-sandbox-{job_id}"
+    work_dir = sandbox_root / f"codesoft-sandbox-{job_id}"
     work_dir.mkdir(exist_ok=True, parents=True)
+    work_dir.chmod(0o777)
+    print(f"[{datetime.now()}] Creating sandbox at {work_dir} (host-visible root={sandbox_root})")
 
     # Prepare source
     if language == "python":
@@ -104,7 +115,7 @@ def parse_test_input(input_str: str):
 
 solution = Solution()
 results = []
-tests = {json.dumps(tests)}
+tests = {tests!r}
 for idx, test in enumerate(tests):
     try:
         input_str = test.get("input", "")
@@ -156,6 +167,7 @@ done''']
 
     try:
         volumes = {str(work_dir): {"bind": "/app", "mode": "rw"}}
+        print(f"[{datetime.now()}] Starting execution container with bind mount {work_dir} -> /app")
         container_logs = client.containers.run(
             image,
             docker_cmd,
@@ -164,11 +176,11 @@ done''']
             network_disabled=True,
             mem_limit=f"{MEMORY_LIMIT_MB}m",
             cpu_quota=500000,  # 0.5 CPU
+            user="65534:65534",
             remove=True,
             stdout=True,
             stderr=True,
             detach=False,
-            # user omitted for root (needed for Docker socket inside container)
         )
         output = container_logs.decode("utf-8").strip() if isinstance(container_logs, (bytes, bytearray)) else str(container_logs)
         # Parse if JSON from harness (for Python), else use basic result
@@ -220,7 +232,9 @@ done''']
             return {"status": "Compilation Error", "stderr": stderr, "runtime_ms": 0}
         return {"status": "Runtime Error", "stderr": stderr, "runtime_ms": 0}
     except Exception as e:
-        return {"status": "Runtime Error", "stderr": str(e), "runtime_ms": 0}
+        message = str(e) or type(e).__name__
+        print(f"[{datetime.now()}] Sandbox execution failed: {type(e).__name__}: {message}")
+        return {"status": "Runtime Error", "stderr": message, "runtime_ms": 0}
     finally:
         try:
             if work_dir.exists():
