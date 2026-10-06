@@ -45,6 +45,15 @@ UI code must not call `fetch` directly. Modules:
 
 Expected backend paths match the original contract: `/api/auth/*`, `/api/problems`, `/api/run`, `/api/submissions`, `/api/profile`, `/api/admin/problems`.
 
+### Problem workspace execution and drafts
+
+- Run posts to `/api/run` and Submit posts to `/api/submissions`; both return a persisted submission object with an `id` and initial status (normally `Queued`). Run jobs execute sample tests; Submit jobs execute the full suite.
+- While a request is active, both execution buttons and the language selector are disabled. The workspace polls `GET /api/submissions/{id}` every 750 ms, renders the latest persisted status, and stops for any status other than `Queued` or `Running`.
+- Polling stops on completion, an API error, page exit, or a two-minute timeout. Only the current execution generation may update the workspace, so stale responses cannot replace a newer result.
+- The Output tab shows Run Result or Submit Result, status, test counts, runtime/memory, stdout, stderr/error details, and polling notices when available. The Test Cases tab shows expandable case input, actual output, expected output, and pass/fail; Submission Details identifies the execution mode and language.
+- Editor drafts are stored in browser localStorage under `codesoft.draft.<encoded-problem-id>.<encoded-language>`. Each problem/language pair restores independently; starter code is used only when that key is absent. Drafts are not submissions, and execution results/history are not stored locally: the backend remains the source of truth.
+- Preserve the API contract that both execution POST responses include the submission ID and that `GET /api/submissions/{id}` returns the current persisted result fields. The Submissions page remains the durable history view.
+
 ## Mock judge behavior
 
 Used only when `useMock` is true:
@@ -112,6 +121,7 @@ This repo uses a queue-based execution pipeline:
 - `main.py` writes a `Submission` as `Queued` and enqueues a JSON payload with `submissionId`, `problemId`, `language`, `code`, and `type` (`run` or `submit`).
 - `runner.py` consumes the queue with `blpop`, updates the submission to `Running`, executes user code in Docker, and persists the final status/result back to PostgreSQL.
 - The worker connects to Redis via `REDIS_URL`, and to Docker via `/var/run/docker.sock` mounted from the host.
+- Python exceptions raised while evaluating a test are persisted as `Runtime Error`, with the message available in `stderr` and the case's `error` field. The C++/Java scripts use Bash for their process-substitution input redirection so compiler diagnostics can reach the runner's compilation-error handling.
 
 #### Current sandbox architecture
 
@@ -164,5 +174,5 @@ curl http://localhost:8000/api/submissions/<id>
 
 - Python execution is the fully-working path for the current CodeSoft flow.
 - C++/Java support remains basic and is not the target of this runtime-error fix.
-- The app still relies on polling rather than websockets for live updates.
+- Problem-page Run and Submit results are updated by controlled polling rather than websockets; see “Problem workspace execution and drafts” above.
 - The repository intentionally leaves the unrelated Redis/pytest host-environment issue outside this task.

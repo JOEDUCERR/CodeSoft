@@ -2,8 +2,9 @@
 
 CodeSoft is a vanilla-JavaScript programming-practice UI backed by FastAPI,
 PostgreSQL, and Redis. The frontend now uses the API as its source of truth;
-users, problems, submissions, and authentication do not depend on browser
-localStorage or frontend data modules.
+user accounts, problems, submissions, and authentication do not depend on
+browser storage or frontend data modules. The problem editor keeps local
+problem- and language-specific drafts so code survives a page refresh.
 
 ## What is complete
 
@@ -13,8 +14,7 @@ localStorage or frontend data modules.
 - Redis-backed durable execution-job enqueueing.
 - Docker Compose setup for API, PostgreSQL, and Redis.
 - Safe execution boundary: the API does not run untrusted code. It saves a
-  submission as `Queued` and pushes its job to Redis for the future isolated
-  runner/pipeline.
+  submission as `Queued` and pushes its job to Redis for the isolated runner.
 
 The prior SQLite JSON storage, demo bearer tokens, deterministic C++/Java
 judge, and in-process Python subprocess execution are no longer used.
@@ -105,11 +105,12 @@ The system now includes a real Redis worker (`runner.py`) that consumes jobs fro
 
 It uses Docker containers for safe isolated execution (no network, CPU/memory limits, non-root, cleanup).
 
-- Run: Executes against sample tests, shows output/cases immediately (Queued -> final).
-- Submit: Executes against full test suite, persists result.
+- Run and Submit execute asynchronously through the Redis worker pipeline (Run uses sample tests; Submit uses the full suite).
+- The problem page polls the submission status and displays the final result, test cases, stdout/stderr, and execution details without leaving the workspace.
+- Editor drafts persist across refreshes, separately per problem and programming language. The Submissions page remains the persistent submission history.
 - Python: Full harness for class/method style problems (twoSum etc.).
-- C++ and Java: Compilation and basic execution supported.
-- Status updates in PostgreSQL; frontend displays results, cases, stdout/stderr.
+- C++ and Java: Compilation and basic execution supported, with current worker limitations.
+- Status and result details are persisted in PostgreSQL and rendered in the workspace and Submissions page.
 
 See `docs/execution-pipeline.md`, `runner.py`, and `agent.md` for details, contract, security, and limitations.
 

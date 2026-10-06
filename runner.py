@@ -131,9 +131,9 @@ for idx, test in enumerate(tests):
         passed = normalized_result == normalized_expected
         results.append({{ "index": idx+1, "passed": passed, "output": normalized_result, "expected": str(expected), "input": input_str }})
     except AttributeError as e:
-        results.append({{ "index": idx+1, "passed": False, "output": str(e), "expected": test.get("output", ""), "input": input_str }})
+        results.append({{ "index": idx+1, "passed": False, "output": str(e), "error": str(e), "expected": test.get("output", ""), "input": input_str }})
     except Exception as e:
-        results.append({{ "index": idx+1, "passed": False, "output": str(e), "expected": test.get("output", ""), "input": input_str }})
+        results.append({{ "index": idx+1, "passed": False, "output": str(e), "error": str(e), "expected": test.get("output", ""), "input": input_str }})
 print(json.dumps(results))
 '''
         with open(work_dir / "run.py", "w") as f:
@@ -146,7 +146,7 @@ print(json.dumps(results))
         image = "gcc:latest"
         # C++ harness: compile then run with test inputs piped. Assumes class Solution with solve method; uses stdin/stdout or simple main wrapper. Test cases piped one per run or use JSON harness if needed. For now, basic with input redirection for test.
         # Note: For full test support, a C++ test driver would be ideal, but this fixes the < /dev/null issue and uses parse for input.
-        docker_cmd = ["sh", "-c", f'''g++ -std=c++17 solution.cpp -o solution && 
+        docker_cmd = ["bash", "-c", f'''g++ -std=c++17 solution.cpp -o solution &&
 for t in $(seq 0 {len(tests)-1}); do
   echo "Test $t" 
   timeout {TIMEOUT_SECONDS}s ./solution < <(echo -e "$(echo '{json.dumps([t["input"] for t in tests])}' | python3 -c 'import sys, json; print(\"\\n\".join(json.loads(sys.argv[1])))' )") || echo "Timeout or error"
@@ -157,7 +157,7 @@ done''']
             f.write(code)
         image = "openjdk:17-slim"
         # Java harness: compile then run with test inputs. Similar limitations as C++; uses input redirection for tests. Assumes public class Solution with solve method.
-        docker_cmd = ["sh", "-c", f'''javac Solution.java && 
+        docker_cmd = ["bash", "-c", f'''javac Solution.java &&
 for t in $(seq 0 {len(tests)-1}); do
   echo "Test $t" 
   timeout {TIMEOUT_SECONDS}s java -cp . Solution < <(echo -e "$(echo '{json.dumps([t["input"] for t in tests])}' | python3 -c 'import sys, json; print(\"\\n\".join([str(x) for x in json.loads(sys.argv[1])]))' )") || echo "Timeout or error"
@@ -183,6 +183,7 @@ done''']
             detach=False,
         )
         output = container_logs.decode("utf-8").strip() if isinstance(container_logs, (bytes, bytearray)) else str(container_logs)
+        stderr = ""
         # Parse if JSON from harness (for Python), else use basic result
         try:
             if output.strip().startswith('[') or output.strip().startswith('{'):
@@ -190,11 +191,16 @@ done''']
                 if isinstance(parsed, list):
                     cases = parsed
                     passed_count = sum(1 for c in cases if c.get("passed", False))
-                    status = "Accepted" if passed_count == len(cases) and passed_count > 0 else "Wrong Answer"
+                    errors = [case for case in cases if case.get("error")]
+                    status = "Runtime Error" if errors else "Accepted" if passed_count == len(cases) and passed_count > 0 else "Wrong Answer"
+                    if errors:
+                        stderr = "\n".join(f"Test case {case.get('index', '?')}: {case['error']}" for case in errors)
                 else:
                     cases = [parsed]
                     passed_count = 1 if parsed.get("passed", False) else 0
-                    status = "Accepted" if passed_count > 0 else "Wrong Answer"
+                    status = "Runtime Error" if parsed.get("error") else "Accepted" if passed_count > 0 else "Wrong Answer"
+                    if parsed.get("error"):
+                        stderr = str(parsed["error"])
             else:
                 # For C++/Java output, parse basic status; remove word-based heuristics
                 if "error" in output.lower() or "exception" in output.lower():
@@ -220,7 +226,7 @@ done''']
         return {
             "status": status,
             "stdout": output or "Execution completed successfully.",
-            "stderr": "",
+            "stderr": stderr,
             "runtime_ms": 45,
             "memory_kb": 32768,
             "tests_passed": passed_count,
@@ -228,7 +234,14 @@ done''']
         }
     except docker.errors.ContainerError as e:
         stderr = str(e.stderr.decode() if hasattr(e, 'stderr') and isinstance(e.stderr, (bytes, bytearray)) else str(e))
-        if "g++" in stderr or "javac" in stderr or "compilation" in stderr.lower():
+        stderr_lower = stderr.lower()
+        if (
+            "g++" in stderr_lower
+            or "javac" in stderr_lower
+            or "compilation" in stderr_lower
+            or "syntaxerror" in stderr_lower
+            or (language in ("cpp", "java") and "error:" in stderr_lower)
+        ):
             return {"status": "Compilation Error", "stderr": stderr, "runtime_ms": 0}
         return {"status": "Runtime Error", "stderr": stderr, "runtime_ms": 0}
     except Exception as e:
