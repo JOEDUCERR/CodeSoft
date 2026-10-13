@@ -478,6 +478,22 @@
   font-size: 13px;
 }
 
+.case-block summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.execution-result-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.execution-result-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
 .demo-note {
   font-size: 12px;
   color: var(--muted);

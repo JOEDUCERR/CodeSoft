@@ -30,7 +30,7 @@ export async function request(path, { method = "GET", body, token } = {}) {
   }
 
   if (!res.ok) {
-    throw new ApiError(data?.message || `Request failed (${res.status})`, {
+    throw new ApiError(data?.message || data?.detail || `Request failed (${res.status})`, {
       status: res.status,
       code: data?.code || "HTTP_ERROR",
     });

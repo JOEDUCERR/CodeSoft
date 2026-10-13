@@ -13,13 +13,16 @@ export function attachEditor(textarea) {
         if (value.slice(lineStart, lineStart + 4) === indent) {
           textarea.value = value.slice(0, lineStart) + value.slice(lineStart + 4);
           textarea.selectionStart = textarea.selectionEnd = start - 4;
+          textarea.dispatchEvent(new Event("input", { bubbles: true }));
         } else if (value.slice(lineStart, lineStart + 1) === "\t") {
           textarea.value = value.slice(0, lineStart) + value.slice(lineStart + 1);
           textarea.selectionStart = textarea.selectionEnd = start - 1;
+          textarea.dispatchEvent(new Event("input", { bubbles: true }));
         }
       } else {
         textarea.value = value.slice(0, start) + indent + value.slice(end);
         textarea.selectionStart = textarea.selectionEnd = start + indent.length;
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
       }
       return;
     }
@@ -31,5 +34,6 @@ export function attachEditor(textarea) {
       ? lines.map((l) => (l.startsWith(indent) ? l.slice(4) : l.startsWith("\t") ? l.slice(1) : l))
       : lines.map((l) => indent + l);
     textarea.value = value.slice(0, lineStart) + next.join("\n") + value.slice(end);
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
