@@ -1,7 +1,7 @@
 export function statusClass(status) {
   const s = (status || "").toLowerCase();
   if (s === "accepted" || s === "solved" || s === "published") return "badge badge-ok";
-  if (s === "queued" || s === "running" || s === "pending" || s === "draft") return "badge badge-warn";
+  if (s === "running" || s === "pending" || s === "draft") return "badge badge-warn";
   if (
     s.includes("error") ||
     s.includes("wrong") ||

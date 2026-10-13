@@ -1,4 +1,4 @@
-﻿# CodeSoft frontend — agent context
+# CodeSoft frontend — agent context
 
 This file records unique decisions and implementation details for the CodeSoft code-execution platform frontend. Update it when the frontend contract or demo behavior changes.
 
@@ -19,7 +19,7 @@ Working product name: **CodeSoft**. Compact text logo in the header. Rename late
 `frontend/js/config.js` is the only place for:
 
 - `apiBase`: `"/api"` (same-origin; no host IPs)
-- `useMock`: `false` — the frontend sends requests to the FastAPI backend
+- `useMock`: `true` until FastAPI exists — set `false` to send real `fetch` calls
 - localStorage keys for demo session and overlays
 
 ## Auth (demo only)
@@ -44,15 +44,6 @@ UI code must not call `fetch` directly. Modules:
 - `js/api/mockJudge.js` — deterministic UI judge (does **not** execute user code)
 
 Expected backend paths match the original contract: `/api/auth/*`, `/api/problems`, `/api/run`, `/api/submissions`, `/api/profile`, `/api/admin/problems`.
-
-### Problem workspace execution and drafts
-
-- Run posts to `/api/run` and Submit posts to `/api/submissions`; both return a persisted submission object with an `id` and initial status (normally `Queued`). Run jobs execute sample tests; Submit jobs execute the full suite.
-- While a request is active, both execution buttons and the language selector are disabled. The workspace polls `GET /api/submissions/{id}` every 750 ms, renders the latest persisted status, and stops for any status other than `Queued` or `Running`.
-- Polling stops on completion, an API error, page exit, or a two-minute timeout. Only the current execution generation may update the workspace, so stale responses cannot replace a newer result.
-- The Output tab shows Run Result or Submit Result, status, test counts, runtime/memory, stdout, stderr/error details, and polling notices when available. The Test Cases tab shows expandable case input, actual output, expected output, and pass/fail; Submission Details identifies the execution mode and language.
-- Editor drafts are stored in browser localStorage under `codesoft.draft.<encoded-problem-id>.<encoded-language>`. Each problem/language pair restores independently; starter code is used only when that key is absent. Drafts are not submissions, and execution results/history are not stored locally: the backend remains the source of truth.
-- Preserve the API contract that both execution POST responses include the submission ID and that `GET /api/submissions/{id}` returns the current persisted result fields. The Submissions page remains the durable history view.
 
 ## Mock judge behavior
 
@@ -86,93 +77,18 @@ Problem create/edit/delete/publish writes `codesoft.store.problems`. If that key
 
 `base.css` tokens, `layout.css` header/workspace, `components.css` table/forms/editor, `pages.css` home/admin. Black/white/gray; semantic green/red/amber only on status.
 
-## Backend status — handoff (2026-10-01)
+## Connecting the backend later
 
-This work is on the `complete-backend` branch. The frontend is in real API
-mode (`frontend/js/config.js` has `useMock: false`), and `main.py` serves both
-the static frontend and the FastAPI `/api` routes.
+1. Implement FastAPI routes under `/api`.
+2. Nginx: `location /api { proxy_pass http://fastapi; }`
+3. Set `config.useMock = false`.
+4. Keep `apiBase` as `/api`. Do not hard-code machine IPs.
 
-### Implemented
+## Verify locally
 
-- PostgreSQL-backed SQLAlchemy models in `database.py`: `User`, `Problem`, and
-  `Submission`. The application defaults to PostgreSQL; SQLite exists only for
-  the automated tests through `DATABASE_URL`.
-- Startup creates schema and seeds three published problems plus the demo user
-  and admin account. This seed data is backend-owned, not read from frontend
-  JavaScript modules.
-- Argon2 password hashing and signed JWT bearer authentication in `security.py`.
-  `JWT_SECRET` must be set to a strong secret outside local development.
-- Auth (`/api/auth/register`, `/login`, `/me`), public catalogue/retrieval,
-  profile, and admin problem CRUD routes.
-- Submission ownership is enforced: users can only list/read their own
-  submissions; admin-only problem routes require an admin JWT.
-- `docker-compose.yml` provisions FastAPI, PostgreSQL 16, and Redis 7 with
-  health checks and persistent volumes.
-- Redis queue adapter in `worker.py`; submitted jobs are pushed to
-  `codesoft:execution-jobs`.
-- Basic API tests live in `tests/test_api.py`; `README.md` contains commands
-  for Docker, curl smoke tests, Redis queue inspection, and pytest.
-
-### Execution pipeline architecture and fixes (2026-10-06)
-
-This repo uses a queue-based execution pipeline:
-
-- Frontend -> FastAPI (`main.py`) -> Redis (`codesoft:execution-jobs`) -> worker (`runner.py`) -> Docker sandbox -> PostgreSQL (`submissions`).
-- `main.py` writes a `Submission` as `Queued` and enqueues a JSON payload with `submissionId`, `problemId`, `language`, `code`, and `type` (`run` or `submit`).
-- `runner.py` consumes the queue with `blpop`, updates the submission to `Running`, executes user code in Docker, and persists the final status/result back to PostgreSQL.
-- The worker connects to Redis via `REDIS_URL`, and to Docker via `/var/run/docker.sock` mounted from the host.
-- Python exceptions raised while evaluating a test are persisted as `Runtime Error`, with the message available in `stderr` and the case's `error` field. The C++/Java scripts use Bash for their process-substitution input redirection so compiler diagnostics can reach the runner's compilation-error handling.
-
-#### Current sandbox architecture
-
-- The worker creates a temporary workspace under a host-visible root (`SANDBOX_ROOT`, default `/tmp/codesoft`).
-- In Docker Compose, both the backend and worker mount the same host directory:
-  - `/var/run/docker.sock:/var/run/docker.sock`
-  - `/tmp/codesoft:/tmp/codesoft`
-- Each job creates a unique directory such as `/tmp/codesoft/codesoft-sandbox-<job-id>`.
-- That directory is bind-mounted into the execution container at `/app`.
-
-This matters because the Docker daemon sees host paths, not container-internal paths. The previous implementation created sandboxes under `Path.cwd()`, which can resolve to a worker-container path that the host Docker daemon cannot access reliably. The fix keeps the sandbox root explicitly on the host and then mounts that exact host directory into the execution container.
-
-#### Actual root cause for the Runtime Error
-
-The worker was also generating the Python harness with invalid Python literal data. The harness wrote:
-
-```python
-tests = {json.dumps(tests)}
+```text
+cd frontend
+python -m http.server 8080
 ```
 
-inside an embedded Python script. That produced `true`/`false` values in lowercase JSON syntax, which is invalid Python and caused the generated `run.py` to crash before it could emit the test result. The worker then swallowed the underlying failure, surfaced a generic `Runtime Error`, and left the submission in an infrastructure error state instead of preserving the real reason.
-
-The fix is:
-
-- create the sandbox under a host-visible root (`/tmp/codesoft`)
-- mount that host directory into each execution container as `/app`
-- generate the harness with valid Python literals (`tests = {tests!r}`)
-- keep diagnostic logging for future debugging
-
-#### Security constraints preserved
-
-- execution containers run with `network_disabled=True`
-- memory and CPU limits are still enforced (`mem_limit=256m`, `cpu_quota=500000`)
-- the execution container is started as a non-root user (`user="65534:65534"` when possible)
-- the worker still does not expose the Docker socket to user code
-- each sandbox is temporary and removed in `finally`
-- the code does not additionally mount the host root or the Docker socket into the sandbox
-
-#### Validation commands
-
-```bash
-docker compose up --build -d
-docker compose logs --tail=200 worker
-curl -X POST http://localhost:8000/api/auth/register ...
-curl -X POST http://localhost:8000/api/run ...
-curl http://localhost:8000/api/submissions/<id>
-```
-
-#### Known limits
-
-- Python execution is the fully-working path for the current CodeSoft flow.
-- C++/Java support remains basic and is not the target of this runtime-error fix.
-- Problem-page Run and Submit results are updated by controlled polling rather than websockets; see “Problem workspace execution and drafts” above.
-- The repository intentionally leaves the unrelated Redis/pytest host-environment issue outside this task.
+Open `http://127.0.0.1:8080/login.html`.
